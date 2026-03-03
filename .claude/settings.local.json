@@ -26,7 +26,8 @@
       "Bash(gh api repos/motherduckdb/mcp-server-motherduck --jq '.description, .default_branch, .language, .topics')",
       "Bash(node /tmp/test-mcp.js)",
       "mcp__sql-csv-tool__*",
-      "WebSearch"
+      "WebSearch",
+      "Bash(npm install @tanstack/react-virtual --save -w packages/webapp)"
     ],
     "additionalDirectories": [
       "/Users/msawczuk/Documents/GitHub/sql-csv-tool",

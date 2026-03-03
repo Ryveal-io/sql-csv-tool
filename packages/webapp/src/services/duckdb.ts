@@ -175,7 +175,7 @@ export async function profileColumn(
 
   // Top values
   const topResult = await conn.query(
-    `SELECT CAST(${col} AS VARCHAR) as value, COUNT(*) as cnt FROM ${tbl} GROUP BY ${col} ORDER BY cnt DESC LIMIT 20`
+    `SELECT CAST(${col} AS VARCHAR) as value, COUNT(*) as cnt FROM ${tbl} GROUP BY ${col} ORDER BY cnt DESC LIMIT 500`
   );
   const topValues: { value: string; count: number }[] = [];
   for (let i = 0; i < topResult.numRows; i++) {
@@ -234,6 +234,106 @@ export async function profileDateColumn(
   }
 
   return { minDate, maxDate, buckets };
+}
+
+export async function getTableRowCount(tableName: string): Promise<number> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const result = await conn.query(`SELECT COUNT(*) as cnt FROM "${tableName}"`);
+  return Number(result.getChild('cnt')?.get(0) ?? 0);
+}
+
+export async function renameColumn(tableName: string, oldName: string, newName: string): Promise<void> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const tbl = tableName.replace(/"/g, '""');
+  const old = oldName.replace(/"/g, '""');
+  const nw = newName.replace(/"/g, '""');
+  await conn.query(`ALTER TABLE "${tbl}" RENAME COLUMN "${old}" TO "${nw}"`);
+}
+
+export async function addColumn(tableName: string, columnName: string, columnType: string = 'VARCHAR'): Promise<void> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const tbl = tableName.replace(/"/g, '""');
+  const col = columnName.replace(/"/g, '""');
+  await conn.query(`ALTER TABLE "${tbl}" ADD COLUMN "${col}" ${columnType}`);
+}
+
+export async function dropColumn(tableName: string, columnName: string): Promise<void> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const tbl = tableName.replace(/"/g, '""');
+  const col = columnName.replace(/"/g, '""');
+  await conn.query(`ALTER TABLE "${tbl}" DROP COLUMN "${col}"`);
+}
+
+export async function reorderColumns(tableName: string, columnOrder: string[]): Promise<void> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const tbl = tableName.replace(/"/g, '""');
+  const selectCols = columnOrder.map(c => `"${c.replace(/"/g, '""')}"`).join(', ');
+  await conn.query(`CREATE TABLE "__reorder_tmp" AS SELECT ${selectCols} FROM "${tbl}"`);
+  await conn.query(`DROP TABLE "${tbl}"`);
+  await conn.query(`ALTER TABLE "__reorder_tmp" RENAME TO "${tbl}"`);
+  loadedTables.set(tableName, loadedTables.get(tableName) ?? tableName);
+}
+
+export async function findReplaceInColumn(
+  tableName: string,
+  columnName: string,
+  find: string,
+  replace: string,
+  options: { caseSensitive: boolean; regex: boolean }
+): Promise<number> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const tbl = `"${tableName.replace(/"/g, '""')}"`;
+  const col = `"${columnName.replace(/"/g, '""')}"`;
+  const findEscaped = find.replace(/'/g, "''");
+  const replaceEscaped = replace.replace(/'/g, "''");
+
+  let sql: string;
+  if (options.regex) {
+    sql = `UPDATE ${tbl} SET ${col} = REGEXP_REPLACE(${col}::VARCHAR, '${findEscaped}', '${replaceEscaped}', 'g') WHERE REGEXP_MATCHES(${col}::VARCHAR, '${findEscaped}')`;
+  } else if (options.caseSensitive) {
+    sql = `UPDATE ${tbl} SET ${col} = REPLACE(${col}::VARCHAR, '${findEscaped}', '${replaceEscaped}') WHERE ${col}::VARCHAR LIKE '%${findEscaped}%'`;
+  } else {
+    sql = `UPDATE ${tbl} SET ${col} = REPLACE(LOWER(${col}::VARCHAR), '${findEscaped.toLowerCase()}', '${replaceEscaped}') WHERE ${col}::VARCHAR ILIKE '%${findEscaped}%'`;
+  }
+
+  const result = await conn.query(sql);
+  return result.numRows;
+}
+
+export async function countMatches(
+  tableName: string,
+  columnName: string | null,
+  find: string,
+  options: { caseSensitive: boolean; regex: boolean }
+): Promise<number> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const tbl = `"${tableName.replace(/"/g, '""')}"`;
+  const findEscaped = find.replace(/'/g, "''");
+
+  let whereClause: string;
+  if (columnName) {
+    const col = `"${columnName.replace(/"/g, '""')}"`;
+    if (options.regex) {
+      whereClause = `REGEXP_MATCHES(${col}::VARCHAR, '${findEscaped}')`;
+    } else if (options.caseSensitive) {
+      whereClause = `${col}::VARCHAR LIKE '%${findEscaped}%'`;
+    } else {
+      whereClause = `${col}::VARCHAR ILIKE '%${findEscaped}%'`;
+    }
+  } else {
+    // Search all columns — get column list
+    const cols = await describeTable(tableName);
+    const conditions = cols.map(c => {
+      const col = `"${c.name.replace(/"/g, '""')}"`;
+      if (options.regex) return `REGEXP_MATCHES(${col}::VARCHAR, '${findEscaped}')`;
+      if (options.caseSensitive) return `${col}::VARCHAR LIKE '%${findEscaped}%'`;
+      return `${col}::VARCHAR ILIKE '%${findEscaped}%'`;
+    });
+    whereClause = conditions.join(' OR ');
+  }
+
+  const result = await conn.query(`SELECT COUNT(*) as cnt FROM ${tbl} WHERE ${whereClause}`);
+  return Number(result.getChild('cnt')?.get(0) ?? 0);
 }
 
 export function getConnection(): duckdb.AsyncDuckDBConnection | null {

@@ -13,6 +13,7 @@
     "@duckdb/duckdb-wasm": "^1.29.0",
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-table": "^8.21.0",
+    "@tanstack/react-virtual": "^3.13.19",
     "apache-arrow": "^18.1.0",
     "monaco-editor": "^0.52.2",
     "react": "^18.3.1",

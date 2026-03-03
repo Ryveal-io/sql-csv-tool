@@ -251,39 +251,53 @@ td.cell-editing input {
   font-style: italic;
 }
 
-/* Pagination */
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 6px;
-  border-top: 1px solid var(--vscode-panel-border);
-  background: var(--vscode-panel-background);
+/* Virtual scrolling container */
+.virtual-table-container {
+  flex: 1;
+  overflow: auto;
 }
 
-.pagination button {
-  padding: 2px 8px;
-  border: 1px solid var(--vscode-panel-border);
-  border-radius: 2px;
-  background: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
+/* Header content layout (sort + filter icon) */
+th {
+  position: relative;
+}
+
+.th-content {
+  display: inline;
   cursor: pointer;
-  font-size: 12px;
 }
 
-.pagination button:hover:not(:disabled) {
-  background: var(--vscode-button-hoverBackground);
+.col-filter-icon {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  opacity: 0;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 2px;
+  transition: opacity 0.1s;
 }
 
-.pagination button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+th:hover .col-filter-icon {
+  opacity: 0.5;
 }
 
-.pagination-info {
-  font-size: 12px;
-  opacity: 0.8;
+.col-filter-icon:hover {
+  opacity: 1 !important;
+  background: var(--vscode-list-hoverBackground);
+}
+
+.col-filter-icon-active {
+  opacity: 0.8 !important;
+  color: var(--vscode-focusBorder);
+}
+
+/* Toolbar active state */
+.toolbar-btn-active {
+  background: var(--vscode-list-activeSelectionBackground);
+  outline: 1px solid var(--vscode-focusBorder);
 }
 
 /* Schema Panel / Explorer */
@@ -506,20 +520,91 @@ td.cell-editing input {
   margin: 4px 0;
 }
 
-/* Column Profile Popover */
-.col-profile-popover {
+/* Column Filter Panel (replaces old popover) */
+.col-filter-panel {
   position: fixed;
   z-index: 100;
   background: var(--vscode-editorWidget-background);
   border: 1px solid var(--vscode-panel-border);
   border-radius: 4px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  min-width: 280px;
-  max-width: 360px;
-  max-height: 420px;
+  min-width: 320px;
+  max-width: 400px;
+  max-height: 500px;
   overflow-y: auto;
   font-size: 12px;
   padding: 10px;
+}
+
+.col-filter-search {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 2px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-size: 12px;
+  margin-bottom: 6px;
+  outline: none;
+}
+
+.col-filter-search:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.col-filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.col-filter-action-btn {
+  background: none;
+  border: none;
+  color: var(--vscode-focusBorder);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+}
+
+.col-filter-action-btn:hover {
+  text-decoration: underline;
+}
+
+.col-filter-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px 0;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.col-filter-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 2px;
+  margin-bottom: 1px;
+  min-height: 22px;
+  cursor: pointer;
+}
+
+.col-filter-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.col-filter-checkbox {
+  margin-right: 6px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.col-filter-apply {
+  display: flex;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-panel-border);
 }
 
 .col-profile-header {
@@ -719,4 +804,78 @@ td.cell-editing input {
 @keyframes skeleton-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.8; }
+}
+
+/* Find & Replace Bar */
+.find-replace-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--vscode-editorWidget-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  font-size: 12px;
+}
+
+.find-replace-column {
+  padding: 3px 6px;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 2px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-size: 12px;
+  max-width: 140px;
+}
+
+.find-replace-input {
+  padding: 3px 8px;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 2px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-size: 12px;
+  min-width: 120px;
+  outline: none;
+}
+
+.find-replace-input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.find-replace-option {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  opacity: 0.7;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.find-replace-option input {
+  margin: 0;
+}
+
+.find-replace-count {
+  font-size: 11px;
+  opacity: 0.7;
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.find-replace-close {
+  background: none;
+  border: none;
+  color: var(--vscode-editor-foreground);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 2px;
+  opacity: 0.6;
+  margin-left: auto;
+}
+
+.find-replace-close:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
 }

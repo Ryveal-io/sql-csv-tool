@@ -4,9 +4,11 @@ interface ToolbarProps {
   fileName: string;
   isDirty?: boolean;
   onSave?: () => void;
+  onToggleFindReplace?: () => void;
+  showFindReplace?: boolean;
 }
 
-export function Toolbar({ onRun, isLoading, fileName, isDirty, onSave }: ToolbarProps) {
+export function Toolbar({ onRun, isLoading, fileName, isDirty, onSave, onToggleFindReplace, showFindReplace }: ToolbarProps) {
   return (
     <div className="toolbar">
       <div className="toolbar-left">
@@ -16,6 +18,15 @@ export function Toolbar({ onRun, isLoading, fileName, isDirty, onSave }: Toolbar
         {isDirty && onSave && (
           <button className="toolbar-btn" onClick={onSave}>
             Save
+          </button>
+        )}
+        {onToggleFindReplace && (
+          <button
+            className={`toolbar-btn${showFindReplace ? ' toolbar-btn-active' : ''}`}
+            onClick={onToggleFindReplace}
+            title="Find & Replace (Ctrl+H)"
+          >
+            Find & Replace
           </button>
         )}
       </div>

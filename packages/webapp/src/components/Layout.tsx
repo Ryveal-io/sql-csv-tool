@@ -3,16 +3,18 @@ import type { ReactNode } from 'react';
 
 interface LayoutProps {
   toolbar: ReactNode;
+  findReplaceBar?: ReactNode;
   sqlEditor: ReactNode;
   schemaPanel: ReactNode;
   resultsTable: ReactNode;
   statusBar: ReactNode;
 }
 
-export function Layout({ toolbar, sqlEditor, schemaPanel, resultsTable, statusBar }: LayoutProps) {
+export function Layout({ toolbar, findReplaceBar, sqlEditor, schemaPanel, resultsTable, statusBar }: LayoutProps) {
   return (
     <div className="app-container">
       {toolbar}
+      {findReplaceBar}
       <PanelGroup direction="vertical" className="main-panels">
         <Panel defaultSize={40} minSize={15}>
           <PanelGroup direction="horizontal">
