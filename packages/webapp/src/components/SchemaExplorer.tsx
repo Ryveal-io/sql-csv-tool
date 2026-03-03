@@ -6,9 +6,10 @@ interface SchemaExplorerProps {
   activeTable: string | null;
   onSelectTable: (tableName: string) => void;
   onOpenFile?: () => void;
+  onRemoveTable?: (tableName: string) => void;
 }
 
-export function SchemaExplorer({ tables, activeTable, onSelectTable, onOpenFile }: SchemaExplorerProps) {
+export function SchemaExplorer({ tables, activeTable, onSelectTable, onOpenFile, onRemoveTable }: SchemaExplorerProps) {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 
   const toggleExpanded = (tableName: string) => {
@@ -28,12 +29,23 @@ export function SchemaExplorer({ tables, activeTable, onSelectTable, onOpenFile 
       <div className="schema-header">
         <span>Tables</span>
         {onOpenFile && (
-          <button className="schema-open-btn" onClick={onOpenFile} title="Open file">+</button>
+          <button className="schema-open-btn-styled" onClick={onOpenFile} title="Open CSV / TSV file">
+            + Open File
+          </button>
         )}
       </div>
       {tables.length === 0 ? (
         <div className="schema-empty">
-          {onOpenFile ? 'Open a CSV file to get started' : 'No table loaded'}
+          {onOpenFile ? (
+            <>
+              <div>No tables loaded</div>
+              <button className="schema-open-btn-hero" onClick={onOpenFile}>
+                + Open a CSV file
+              </button>
+            </>
+          ) : (
+            'No table loaded'
+          )}
         </div>
       ) : (
         <div className="schema-tree">
@@ -56,6 +68,15 @@ export function SchemaExplorer({ tables, activeTable, onSelectTable, onOpenFile 
                   {table.fileName !== table.name && (
                     <span className="schema-table-file" title={table.fileName}>
                       {table.fileName}
+                    </span>
+                  )}
+                  {onRemoveTable && (
+                    <span
+                      className="schema-table-close"
+                      title={`Remove ${table.name}`}
+                      onClick={(e) => { e.stopPropagation(); onRemoveTable(table.name); }}
+                    >
+                      &times;
                     </span>
                   )}
                 </div>

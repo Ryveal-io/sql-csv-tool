@@ -7,9 +7,10 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useRef } from 'react';
 import type { QueryResult, QueryColumn } from '../types/query';
 import { CellContextMenu, type SelectedCell } from './CellContextMenu';
+import { ColumnProfilePopover } from './ColumnProfilePopover';
 
 interface CellId {
   rowIndex: number;
@@ -21,22 +22,50 @@ interface ContextMenuState {
   y: number;
 }
 
+interface EditingCell {
+  rowIndex: number;
+  columnName: string;
+  value: string;
+}
+
 interface ResultsTableProps {
   result: QueryResult | null;
   error: string | null;
   isLoading: boolean;
   columnTypes?: QueryColumn[];
   onFilter?: (filterClause: string) => void;
+  editable?: boolean;
+  onCellEdit?: (rowid: number, columnName: string, newValue: string) => void;
+  activeTable?: string | null;
 }
 
 function cellKey(rowIndex: number, columnName: string): string {
   return `${rowIndex}:${columnName}`;
 }
 
-export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }: ResultsTableProps) {
+export function ResultsTable({
+  result,
+  error,
+  isLoading,
+  columnTypes,
+  onFilter,
+  editable,
+  onCellEdit,
+  activeTable,
+}: ResultsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selectedCells, setSelectedCells] = useState<Map<string, CellId>>(new Map());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+
+  // Column profile hover state
+  const [hoveredColumn, setHoveredColumn] = useState<{
+    name: string;
+    type: string;
+    rect: DOMRect;
+  } | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Build a map of column name → type for quick lookup
   const typeMap = useMemo(() => {
@@ -54,12 +83,17 @@ export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }
     return map;
   }, [columnTypes, result?.columns]);
 
+  // Filter out rowid column from display
+  const displayColumns = useMemo(() => {
+    if (!result) return [];
+    return result.columns.filter(col => col.name !== 'rowid');
+  }, [result?.columns]);
+
   const handleCellClick = useCallback(
     (e: React.MouseEvent, rowIndex: number, columnName: string) => {
       const key = cellKey(rowIndex, columnName);
 
       if (e.metaKey || e.ctrlKey) {
-        // Toggle this cell in the selection
         setSelectedCells((prev) => {
           const next = new Map(prev);
           if (next.has(key)) {
@@ -70,21 +104,43 @@ export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }
           return next;
         });
       } else {
-        // Single click — select just this cell
         setSelectedCells(new Map([[key, { rowIndex, columnName }]]));
       }
-      // Close any open context menu on click
       setContextMenu(null);
     },
     []
   );
+
+  const handleCellDoubleClick = useCallback(
+    (rowIndex: number, columnName: string, currentValue: unknown) => {
+      if (!editable || !onCellEdit) return;
+      setEditingCell({
+        rowIndex,
+        columnName,
+        value: currentValue === null || currentValue === undefined ? '' : String(currentValue),
+      });
+    },
+    [editable, onCellEdit]
+  );
+
+  const commitEdit = useCallback(() => {
+    if (!editingCell || !onCellEdit || !result) return;
+    const row = result.rows[editingCell.rowIndex];
+    const rowid = row?.rowid;
+    if (rowid === undefined || rowid === null) return;
+    onCellEdit(Number(rowid), editingCell.columnName, editingCell.value);
+    setEditingCell(null);
+  }, [editingCell, onCellEdit, result]);
+
+  const cancelEdit = useCallback(() => {
+    setEditingCell(null);
+  }, []);
 
   const handleCellContextMenu = useCallback(
     (e: React.MouseEvent, rowIndex: number, columnName: string) => {
       e.preventDefault();
       const key = cellKey(rowIndex, columnName);
 
-      // If right-clicking on an unselected cell, select just that cell
       setSelectedCells((prev) => {
         if (prev.has(key)) return prev;
         return new Map([[key, { rowIndex, columnName }]]);
@@ -95,7 +151,34 @@ export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }
     []
   );
 
-  // Build SelectedCell[] for the context menu from current selection + data
+  // Header hover handlers for profile popover
+  const handleHeaderMouseEnter = useCallback((e: React.MouseEvent<HTMLTableCellElement>, colName: string, colType: string) => {
+    if (!activeTable) return;
+    clearTimeout(closeTimerRef.current);
+    const target = e.currentTarget;
+    hoverTimerRef.current = setTimeout(() => {
+      const rect = target.getBoundingClientRect();
+      setHoveredColumn({ name: colName, type: colType, rect });
+    }, 300);
+  }, [activeTable]);
+
+  const handleHeaderMouseLeave = useCallback(() => {
+    clearTimeout(hoverTimerRef.current);
+    closeTimerRef.current = setTimeout(() => {
+      setHoveredColumn(null);
+    }, 200);
+  }, []);
+
+  const handlePopoverMouseEnter = useCallback(() => {
+    clearTimeout(closeTimerRef.current);
+  }, []);
+
+  const handlePopoverMouseLeave = useCallback(() => {
+    closeTimerRef.current = setTimeout(() => {
+      setHoveredColumn(null);
+    }, 200);
+  }, []);
+
   const selectedCellData = useMemo((): SelectedCell[] => {
     if (!result) return [];
     return Array.from(selectedCells.values()).map(({ rowIndex, columnName }) => {
@@ -119,7 +202,7 @@ export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }
 
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
     if (!result) return [];
-    return result.columns.map((col) => ({
+    return displayColumns.map((col) => ({
       accessorKey: col.name,
       header: () => (
         <span title={col.type}>{col.name}</span>
@@ -130,7 +213,7 @@ export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }
         return String(val);
       },
     }));
-  }, [result?.columns]);
+  }, [displayColumns]);
 
   const table = useReactTable({
     data: result?.rows ?? [],
@@ -150,6 +233,7 @@ export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }
   useMemo(() => {
     setSelectedCells(new Map());
     setContextMenu(null);
+    setEditingCell(null);
   }, [resultId]);
 
   if (isLoading) {
@@ -172,23 +256,28 @@ export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 <th className="row-number-header">#</th>
-                {headerGroup.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    onClick={header.column.getToggleSortingHandler()}
-                    className={header.column.getIsSorted() ? 'sorted' : ''}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    {flexRender(header.column.columnDef.header, header.getContext())}
-                    {{ asc: ' \u25B2', desc: ' \u25BC' }[header.column.getIsSorted() as string] ?? ''}
-                  </th>
-                ))}
+                {headerGroup.headers.map((header) => {
+                  const colName = header.column.id;
+                  const colType = typeMap.get(colName) ?? '';
+                  return (
+                    <th
+                      key={header.id}
+                      onClick={header.column.getToggleSortingHandler()}
+                      className={header.column.getIsSorted() ? 'sorted' : ''}
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={(e) => handleHeaderMouseEnter(e, colName, colType)}
+                      onMouseLeave={handleHeaderMouseLeave}
+                    >
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {{ asc: ' \u25B2', desc: ' \u25BC' }[header.column.getIsSorted() as string] ?? ''}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => {
-              // Map sorted row back to original index for selection tracking
               const originalIndex = result.rows.indexOf(row.original);
               return (
                 <tr key={row.id}>
@@ -198,11 +287,31 @@ export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }
                   {row.getVisibleCells().map((cell) => {
                     const colName = cell.column.id;
                     const isSelected = selectedCells.has(cellKey(originalIndex, colName));
+                    const isEditing = editingCell?.rowIndex === originalIndex && editingCell?.columnName === colName;
+
+                    if (isEditing) {
+                      return (
+                        <td key={cell.id} className="cell-editing">
+                          <input
+                            autoFocus
+                            value={editingCell.value}
+                            onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitEdit();
+                              if (e.key === 'Escape') cancelEdit();
+                            }}
+                            onBlur={commitEdit}
+                          />
+                        </td>
+                      );
+                    }
+
                     return (
                       <td
                         key={cell.id}
                         className={isSelected ? 'cell-selected' : ''}
                         onClick={(e) => handleCellClick(e, originalIndex, colName)}
+                        onDoubleClick={() => handleCellDoubleClick(originalIndex, colName, row.original[colName])}
                         onContextMenu={(e) => handleCellContextMenu(e, originalIndex, colName)}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -241,6 +350,16 @@ export function ResultsTable({ result, error, isLoading, columnTypes, onFilter }
           selectedCells={selectedCellData}
           onFilter={handleFilter}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+      {hoveredColumn && activeTable && (
+        <ColumnProfilePopover
+          tableName={activeTable}
+          columnName={hoveredColumn.name}
+          columnType={hoveredColumn.type}
+          anchorRect={hoveredColumn.rect}
+          onMouseEnter={handlePopoverMouseEnter}
+          onMouseLeave={handlePopoverMouseLeave}
         />
       )}
     </div>

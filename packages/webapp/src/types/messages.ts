@@ -10,4 +10,5 @@ export type ExtensionToWebviewMessage =
 export type WebviewToExtensionMessage =
   | { type: 'ready' }
   | { type: 'csvData'; content: number[] }
+  | { type: 'saveTable'; fileName: string; content: number[] }
   | { type: 'error'; message: string };

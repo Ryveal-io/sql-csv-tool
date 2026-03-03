@@ -114,6 +114,13 @@ export class CsvEditorProvider implements vscode.CustomEditorProvider<CsvDocumen
           document.updateContent(new Uint8Array(message.content));
           break;
         }
+
+        case 'saveTable': {
+          const content = new Uint8Array(message.content);
+          document.updateContent(content);
+          await vscode.workspace.fs.writeFile(document.uri, content);
+          break;
+        }
       }
     });
   }

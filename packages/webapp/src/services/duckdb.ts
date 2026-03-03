@@ -100,6 +100,142 @@ export async function exportCsv(tableName?: string): Promise<Uint8Array> {
   return buffer;
 }
 
+export async function dropTable(tableName: string): Promise<void> {
+  if (!conn) throw new Error('DuckDB not connected');
+  await conn.query(`DROP TABLE IF EXISTS "${tableName}"`);
+  loadedTables.delete(tableName);
+}
+
+export async function updateCell(
+  tableName: string,
+  rowid: number,
+  columnName: string,
+  value: string | null,
+  columnType: string
+): Promise<void> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const escaped = columnName.replace(/"/g, '""');
+  let valExpr: string;
+  if (value === null || value === '') {
+    valExpr = 'NULL';
+  } else if (/INT|FLOAT|DOUBLE|DECIMAL|NUMERIC|REAL|BIGINT|SMALLINT|TINYINT|HUGEINT/i.test(columnType)) {
+    valExpr = value;
+  } else {
+    valExpr = `'${value.replace(/'/g, "''")}'`;
+  }
+  await conn.query(`UPDATE "${tableName}" SET "${escaped}" = ${valExpr} WHERE rowid = ${rowid}`);
+}
+
+export async function saveTableToBytes(tableName: string): Promise<Uint8Array> {
+  if (!conn || !db) throw new Error('DuckDB not connected');
+  await conn.query(`COPY "${tableName}" TO 'save_export.csv' (FORMAT CSV, HEADER)`);
+  return await db.copyFileToBuffer('save_export.csv');
+}
+
+export interface ColumnProfile {
+  totalRows: number;
+  nullCount: number;
+  distinctCount: number;
+  topValues: { value: string; count: number }[];
+  numericStats?: { min: number; max: number; avg: number; median: number };
+}
+
+export interface DateProfile {
+  minDate: string;
+  maxDate: string;
+  buckets: { period: string; count: number }[];
+}
+
+function isNumericColumnType(type: string): boolean {
+  return /INT|FLOAT|DOUBLE|DECIMAL|NUMERIC|REAL|BIGINT|SMALLINT|TINYINT|HUGEINT/i.test(type);
+}
+
+function isDateColumnType(type: string): boolean {
+  return /DATE|TIMESTAMP|TIMESTAMPTZ|DATETIME/i.test(type);
+}
+
+export { isDateColumnType };
+
+export async function profileColumn(
+  tableName: string,
+  columnName: string,
+  columnType: string
+): Promise<ColumnProfile> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const col = `"${columnName.replace(/"/g, '""')}"`;
+  const tbl = `"${tableName.replace(/"/g, '""')}"`;
+
+  // Stats query
+  const statsResult = await conn.query(
+    `SELECT COUNT(*) as total, COUNT(*) - COUNT(${col}) as nulls, COUNT(DISTINCT ${col}) as dist FROM ${tbl}`
+  );
+  const totalRows = Number(statsResult.getChild('total')?.get(0) ?? 0);
+  const nullCount = Number(statsResult.getChild('nulls')?.get(0) ?? 0);
+  const distinctCount = Number(statsResult.getChild('dist')?.get(0) ?? 0);
+
+  // Top values
+  const topResult = await conn.query(
+    `SELECT CAST(${col} AS VARCHAR) as value, COUNT(*) as cnt FROM ${tbl} GROUP BY ${col} ORDER BY cnt DESC LIMIT 20`
+  );
+  const topValues: { value: string; count: number }[] = [];
+  for (let i = 0; i < topResult.numRows; i++) {
+    const v = topResult.getChild('value')?.get(i);
+    topValues.push({
+      value: v === null || v === undefined ? 'NULL' : String(v),
+      count: Number(topResult.getChild('cnt')?.get(i) ?? 0),
+    });
+  }
+
+  // Numeric stats
+  let numericStats: ColumnProfile['numericStats'];
+  if (isNumericColumnType(columnType)) {
+    try {
+      const numResult = await conn.query(
+        `SELECT MIN(${col}) as mn, MAX(${col}) as mx, ROUND(AVG(${col}),2) as av, ROUND(MEDIAN(${col}),2) as md FROM ${tbl}`
+      );
+      numericStats = {
+        min: Number(numResult.getChild('mn')?.get(0)),
+        max: Number(numResult.getChild('mx')?.get(0)),
+        avg: Number(numResult.getChild('av')?.get(0)),
+        median: Number(numResult.getChild('md')?.get(0)),
+      };
+    } catch {
+      // MEDIAN may not be available, skip
+    }
+  }
+
+  return { totalRows, nullCount, distinctCount, topValues, numericStats };
+}
+
+export async function profileDateColumn(
+  tableName: string,
+  columnName: string,
+  granularity: 'hour' | 'day' | 'week' | 'month' | 'year'
+): Promise<DateProfile> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const col = `"${columnName.replace(/"/g, '""')}"`;
+  const tbl = `"${tableName.replace(/"/g, '""')}"`;
+
+  const rangeResult = await conn.query(
+    `SELECT MIN(${col})::VARCHAR as min_date, MAX(${col})::VARCHAR as max_date FROM ${tbl}`
+  );
+  const minDate = String(rangeResult.getChild('min_date')?.get(0) ?? '');
+  const maxDate = String(rangeResult.getChild('max_date')?.get(0) ?? '');
+
+  const bucketsResult = await conn.query(
+    `SELECT DATE_TRUNC('${granularity}', ${col})::VARCHAR as period, COUNT(*) as cnt FROM ${tbl} WHERE ${col} IS NOT NULL GROUP BY 1 ORDER BY 1`
+  );
+  const buckets: { period: string; count: number }[] = [];
+  for (let i = 0; i < bucketsResult.numRows; i++) {
+    buckets.push({
+      period: String(bucketsResult.getChild('period')?.get(i) ?? ''),
+      count: Number(bucketsResult.getChild('cnt')?.get(i) ?? 0),
+    });
+  }
+
+  return { minDate, maxDate, buckets };
+}
+
 export function getConnection(): duckdb.AsyncDuckDBConnection | null {
   return conn;
 }
