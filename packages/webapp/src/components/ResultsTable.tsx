@@ -47,7 +47,7 @@ interface ResultsTableProps {
   columnTypes?: QueryColumn[];
   onFilter?: (filterClause: string) => void;
   editable?: boolean;
-  onCellEdit?: (rowid: number, columnName: string, newValue: string) => void;
+  onCellEdit?: (rowIndex: number, rowid: number, columnName: string, newValue: string) => void;
   activeTable?: string | null;
   columnFilters?: Map<string, string>;
   onApplyColumnFilter?: (columnName: string, clause: string) => void;
@@ -55,13 +55,16 @@ interface ResultsTableProps {
   onRenameColumn?: (oldName: string, newName: string) => void;
   onInsertColumn?: (afterColumn: string, position: 'left' | 'right') => void;
   onDeleteColumn?: (columnName: string) => void;
+  hasMore?: boolean;
+  isFetchingMore?: boolean;
+  onFetchMore?: () => void;
 }
 
 function cellKey(rowIndex: number, columnName: string): string {
   return `${rowIndex}:${columnName}`;
 }
 
-const ROW_HEIGHT = 24;
+const ROW_HEIGHT = 28;
 
 export function ResultsTable({
   result,
@@ -78,6 +81,9 @@ export function ResultsTable({
   onRenameColumn,
   onInsertColumn,
   onDeleteColumn,
+  hasMore,
+  isFetchingMore,
+  onFetchMore,
 }: ResultsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selectedCells, setSelectedCells] = useState<Map<string, CellId>>(new Map());
@@ -145,7 +151,7 @@ export function ResultsTable({
     const row = result.rows[editingCell.rowIndex];
     const rowid = row?.rowid;
     if (rowid === undefined || rowid === null) return;
-    onCellEdit(Number(rowid), editingCell.columnName, editingCell.value);
+    onCellEdit(editingCell.rowIndex, Number(rowid), editingCell.columnName, editingCell.value);
     setEditingCell(null);
   }, [editingCell, onCellEdit, result]);
 
@@ -229,8 +235,24 @@ export function ResultsTable({
     count: rows.length,
     getScrollElement: () => tableContainerRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 20,
+    overscan: 30,
   });
+
+  // Infinite scroll: fetch more when near bottom
+  useEffect(() => {
+    const container = tableContainerRef.current;
+    if (!container || !onFetchMore || !hasMore) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (scrollHeight - scrollTop - clientHeight < 500) {
+        onFetchMore();
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [onFetchMore, hasMore]);
 
   // Clear selection when results change
   const resultId = result?.rowCount;
@@ -252,8 +274,35 @@ export function ResultsTable({
     return <div className="results-message">Run a query to see results</div>;
   }
 
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom = virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
+  const colSpan = displayColumns.length + 1; // +1 for row number column
+
+  const activeFilterEntries = columnFilters ? Array.from(columnFilters.entries()) : [];
+
   return (
     <div className="results-container">
+      {activeFilterEntries.length > 0 && (
+        <div className="active-filters-bar">
+          <span className="active-filters-label">Filters:</span>
+          {activeFilterEntries.map(([colName]) => (
+            <span key={colName} className="active-filter-chip">
+              {colName}
+              {onClearColumnFilter && (
+                <button
+                  className="active-filter-remove"
+                  onClick={() => onClearColumnFilter(colName)}
+                  title={`Remove filter on ${colName}`}
+                >
+                  &times;
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="virtual-table-container" ref={tableContainerRef}>
         <table>
           <thead>
@@ -267,7 +316,10 @@ export function ResultsTable({
                   return (
                     <th
                       key={header.id}
-                      className={header.column.getIsSorted() ? 'sorted' : ''}
+                      className={[
+                        header.column.getIsSorted() ? 'sorted' : '',
+                        hasFilter ? 'col-filtered' : '',
+                      ].filter(Boolean).join(' ')}
                       onContextMenu={(e) => handleHeaderContextMenu(e, colName)}
                     >
                       <div className="th-content" onClick={header.column.getToggleSortingHandler()}>
@@ -287,23 +339,15 @@ export function ResultsTable({
               </tr>
             ))}
           </thead>
-          <tbody style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative', display: 'block' }}>
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          <tbody>
+            {paddingTop > 0 && (
+              <tr><td colSpan={colSpan} style={{ height: paddingTop, padding: 0, border: 'none' }} /></tr>
+            )}
+            {virtualItems.map((virtualRow) => {
               const row = rows[virtualRow.index];
               const originalIndex = result.rows.indexOf(row.original);
               return (
-                <tr
-                  key={row.id}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: `${virtualRow.size}px`,
-                    transform: `translateY(${virtualRow.start}px)`,
-                    display: 'table-row',
-                  }}
-                >
+                <tr key={row.id}>
                   <td className="row-number">{virtualRow.index + 1}</td>
                   {row.getVisibleCells().map((cell) => {
                     const colName = cell.column.id;
@@ -327,10 +371,13 @@ export function ResultsTable({
                       );
                     }
 
+                    const cellVal = row.original[colName];
+                    const cellStr = cellVal === null || cellVal === undefined ? '' : String(cellVal);
                     return (
                       <td
                         key={cell.id}
                         className={isSelected ? 'cell-selected' : ''}
+                        title={cellStr.length > 30 ? cellStr : undefined}
                         onClick={(e) => handleCellClick(e, originalIndex, colName)}
                         onDoubleClick={() => handleCellDoubleClick(originalIndex, colName, row.original[colName])}
                         onContextMenu={(e) => handleCellContextMenu(e, originalIndex, colName)}
@@ -342,6 +389,12 @@ export function ResultsTable({
                 </tr>
               );
             })}
+            {paddingBottom > 0 && (
+              <tr><td colSpan={colSpan} style={{ height: paddingBottom, padding: 0, border: 'none' }} /></tr>
+            )}
+            {isFetchingMore && (
+              <tr><td colSpan={colSpan} style={{ textAlign: 'center', opacity: 0.6, padding: '8px' }}>Loading more rows...</td></tr>
+            )}
           </tbody>
         </table>
       </div>

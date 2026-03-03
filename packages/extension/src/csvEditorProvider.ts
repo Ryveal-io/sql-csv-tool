@@ -121,6 +121,30 @@ export class CsvEditorProvider implements vscode.CustomEditorProvider<CsvDocumen
           await vscode.workspace.fs.writeFile(document.uri, content);
           break;
         }
+
+        case 'saveTableAs': {
+          const content = new Uint8Array(message.content);
+          const baseName = (message.fileName as string).replace(/\.[^.]+$/, '');
+          const ext = (message.fileExtension as string) || '.csv';
+          const defaultUri = vscode.Uri.joinPath(
+            vscode.Uri.file(document.uri.fsPath).with({ path: document.uri.fsPath.replace(/[^/]+$/, '') }),
+            `${baseName}${ext}`
+          );
+          const dest = await vscode.window.showSaveDialog({
+            defaultUri,
+            filters: {
+              'CSV Files': ['csv'],
+              'TSV Files': ['tsv'],
+              'Text Files': ['txt'],
+              'All Files': ['*'],
+            },
+          });
+          if (dest) {
+            await vscode.workspace.fs.writeFile(dest, content);
+            vscode.window.showInformationMessage(`Saved to ${dest.fsPath}`);
+          }
+          break;
+        }
       }
     });
   }

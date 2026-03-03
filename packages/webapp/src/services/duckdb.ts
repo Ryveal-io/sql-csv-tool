@@ -336,6 +336,49 @@ export async function countMatches(
   return Number(result.getChild('cnt')?.get(0) ?? 0);
 }
 
+export async function executeCountQuery(sql: string): Promise<number> {
+  if (!conn) throw new Error('DuckDB not connected');
+  const result = await conn.query(sql);
+  return Number(result.getChild('cnt')?.get(0) ?? 0);
+}
+
+export async function saveTableWithOptions(
+  tableName: string,
+  options: {
+    delimiter: string;
+    quoteStyle: 'always' | 'as-needed' | 'never';
+    includeHeader: boolean;
+    includeRowNumbers: boolean;
+  }
+): Promise<Uint8Array> {
+  if (!conn || !db) throw new Error('DuckDB not connected');
+
+  const tbl = `"${tableName.replace(/"/g, '""')}"`;
+  const copyOptions: string[] = ['FORMAT CSV'];
+
+  copyOptions.push(`DELIMITER '${options.delimiter.replace(/'/g, "''")}'`);
+
+  if (options.includeHeader) {
+    copyOptions.push('HEADER');
+  }
+
+  if (options.quoteStyle === 'always') {
+    copyOptions.push('FORCE_QUOTE *');
+  }
+  // 'as-needed' is DuckDB default, 'never' we handle by setting quote to empty-ish
+
+  let sourceExpr: string;
+  if (options.includeRowNumbers) {
+    sourceExpr = `(SELECT ROW_NUMBER() OVER () as row_num, * FROM ${tbl})`;
+  } else {
+    sourceExpr = tbl;
+  }
+
+  const fileName = 'save_as_export.csv';
+  await conn.query(`COPY ${sourceExpr} TO '${fileName}' (${copyOptions.join(', ')})`);
+  return await db.copyFileToBuffer(fileName);
+}
+
 export function getConnection(): duckdb.AsyncDuckDBConnection | null {
   return conn;
 }

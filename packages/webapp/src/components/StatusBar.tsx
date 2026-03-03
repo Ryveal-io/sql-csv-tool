@@ -3,16 +3,18 @@ import type { QueryResult } from '../types/query';
 interface StatusBarProps {
   result: QueryResult | null;
   totalRows?: number;
+  totalQueryRows?: number | null;
 }
 
-export function StatusBar({ result, totalRows }: StatusBarProps) {
+export function StatusBar({ result, totalRows, totalQueryRows }: StatusBarProps) {
+  const displayTotal = totalQueryRows ?? totalRows;
   return (
     <div className="status-bar">
       {result && (
         <>
           <span className="status-item">
-            {totalRows != null && totalRows !== result.rowCount
-              ? `${result.rowCount.toLocaleString()} of ${totalRows.toLocaleString()} rows`
+            {displayTotal != null && displayTotal !== result.rowCount
+              ? `${result.rowCount.toLocaleString()} of ${displayTotal.toLocaleString()} rows`
               : `${result.rowCount.toLocaleString()} row${result.rowCount !== 1 ? 's' : ''}`
             }
           </span>

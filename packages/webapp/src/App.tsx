@@ -6,6 +6,7 @@ import { Toolbar } from './components/Toolbar';
 import { StatusBar } from './components/StatusBar';
 import { SchemaExplorer } from './components/SchemaExplorer';
 import { FindReplaceBar } from './components/FindReplaceBar';
+import { SaveAsDialog, type SaveAsOptions } from './components/SaveAsDialog';
 import { useDuckDb } from './hooks/useDuckDb';
 import { useQueryExecution } from './hooks/useQueryExecution';
 import { useVsCodeMessaging } from './hooks/useVsCodeMessaging';
@@ -15,6 +16,7 @@ import {
   dropTable,
   updateCell,
   saveTableToBytes,
+  saveTableWithOptions,
   getTableRowCount,
   renameColumn,
   addColumn,
@@ -28,13 +30,13 @@ import { pickFile } from './services/standaloneAdapter';
 import type { TableInfo } from './types/query';
 
 function defaultQueryForTable(tableName: string): string {
-  return `SELECT rowid, * FROM "${tableName}" LIMIT 1000`;
+  return `SELECT rowid, * FROM "${tableName}"`;
 }
 
 function isEditableDefaultQuery(sql: string, activeTable: string | null): boolean {
   if (!activeTable) return false;
   const pattern = new RegExp(
-    `^\\s*SELECT\\s+rowid\\s*,\\s*\\*\\s+FROM\\s+"?${activeTable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"?\\s*(WHERE\\s+.+)?\\s*(LIMIT\\s+\\d+)?\\s*;?\\s*$`,
+    `^\\s*SELECT\\s+rowid\\s*,\\s*\\*\\s+FROM\\s+"?${activeTable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"?\\s*(WHERE\\s+.+)?\\s*;?\\s*$`,
     'i'
   );
   return pattern.test(sql.trim());
@@ -83,9 +85,10 @@ export default function App() {
   const [dirtyTables, setDirtyTables] = useState<Set<string>>(new Set());
   const [columnFilters, setColumnFilters] = useState<Map<string, string>>(new Map());
   const [showFindReplace, setShowFindReplace] = useState(false);
+  const [showSaveAs, setShowSaveAs] = useState(false);
 
   const { isReady, isLoading: dbLoading, error: dbError, loadFile } = useDuckDb();
-  const { result, error: queryError, isExecuting, runQuery } = useQueryExecution();
+  const { result, totalQueryRows, hasMore, error: queryError, isExecuting, isFetchingMore, runQuery, fetchMore, updateRow } = useQueryExecution();
 
   const handleLoad = useCallback(async (name: string, content: Uint8Array) => {
     const tableName = await loadFile(name, content);
@@ -175,15 +178,17 @@ export default function App() {
 
   const editable = isEditableDefaultQuery(sql, activeTable);
 
-  const handleCellEdit = useCallback(async (rowid: number, columnName: string, newValue: string) => {
+  const handleCellEdit = useCallback(async (rowIndex: number, rowid: number, columnName: string, newValue: string) => {
     if (!activeTable) return;
     const colInfo = tables.find(t => t.name === activeTable)?.columns.find(c => c.name === columnName);
     const colType = colInfo?.type ?? 'VARCHAR';
     await updateCell(activeTable, rowid, columnName, newValue || null, colType);
     setDirtyTables(prev => new Set(prev).add(activeTable));
     clearProfileCache(activeTable);
-    runQuery(sql);
-  }, [activeTable, tables, sql, runQuery]);
+    // Update local state instead of re-fetching all rows
+    const coerced = newValue === '' ? null : newValue;
+    updateRow(rowIndex, columnName, coerced);
+  }, [activeTable, tables, updateRow]);
 
   const handleSave = useCallback(async () => {
     if (!activeTable) return;
@@ -206,6 +211,26 @@ export default function App() {
       next.delete(activeTable);
       return next;
     });
+  }, [activeTable, tables, isVsCode]);
+
+  const handleSaveAs = useCallback(async (options: SaveAsOptions) => {
+    if (!activeTable) return;
+    const bytes = await saveTableWithOptions(activeTable, options);
+    const baseName = tables.find(t => t.name === activeTable)?.fileName?.replace(/\.[^.]+$/, '') ?? activeTable;
+    const fileName = `${baseName}${options.fileExtension}`;
+
+    if (isVsCode) {
+      postMessageToExtension({ type: 'saveTableAs', fileName, fileExtension: options.fileExtension, content: Array.from(bytes) });
+    } else {
+      const blob = new Blob([bytes], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    setShowSaveAs(false);
   }, [activeTable, tables, isVsCode]);
 
   // Column filter handlers
@@ -335,7 +360,7 @@ export default function App() {
   const activeFileName = tables.find(t => t.name === activeTable)?.fileName ?? '';
   const isDirty = activeTable ? dirtyTables.has(activeTable) : false;
 
-  return (
+  return (<>
     <Layout
       toolbar={
         <Toolbar
@@ -344,8 +369,10 @@ export default function App() {
           fileName={activeFileName}
           isDirty={isDirty}
           onSave={handleSave}
+          onSaveAs={() => setShowSaveAs(true)}
           onToggleFindReplace={() => setShowFindReplace(prev => !prev)}
           showFindReplace={showFindReplace}
+          hasActiveTable={!!activeTable}
         />
       }
       findReplaceBar={
@@ -386,11 +413,21 @@ export default function App() {
           onRenameColumn={handleRenameColumn}
           onInsertColumn={handleInsertColumn}
           onDeleteColumn={handleDeleteColumn}
+          hasMore={hasMore}
+          isFetchingMore={isFetchingMore}
+          onFetchMore={fetchMore}
         />
       }
       statusBar={
-        <StatusBar result={result} totalRows={totalRows} />
+        <StatusBar result={result} totalRows={totalRows} totalQueryRows={totalQueryRows} />
       }
     />
+    {showSaveAs && (
+      <SaveAsDialog
+        onSave={handleSaveAs}
+        onClose={() => setShowSaveAs(false)}
+      />
+    )}
+  </>
   );
 }

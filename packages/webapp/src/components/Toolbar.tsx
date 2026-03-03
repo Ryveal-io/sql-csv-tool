@@ -4,11 +4,13 @@ interface ToolbarProps {
   fileName: string;
   isDirty?: boolean;
   onSave?: () => void;
+  onSaveAs?: () => void;
   onToggleFindReplace?: () => void;
   showFindReplace?: boolean;
+  hasActiveTable?: boolean;
 }
 
-export function Toolbar({ onRun, isLoading, fileName, isDirty, onSave, onToggleFindReplace, showFindReplace }: ToolbarProps) {
+export function Toolbar({ onRun, isLoading, fileName, isDirty, onSave, onSaveAs, onToggleFindReplace, showFindReplace, hasActiveTable }: ToolbarProps) {
   return (
     <div className="toolbar">
       <div className="toolbar-left">
@@ -18,6 +20,11 @@ export function Toolbar({ onRun, isLoading, fileName, isDirty, onSave, onToggleF
         {isDirty && onSave && (
           <button className="toolbar-btn" onClick={onSave}>
             Save
+          </button>
+        )}
+        {hasActiveTable && onSaveAs && (
+          <button className="toolbar-btn" onClick={onSaveAs}>
+            Save As...
           </button>
         )}
         {onToggleFindReplace && (
