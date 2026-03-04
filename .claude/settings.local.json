@@ -41,7 +41,11 @@
       "Bash(code --list-extensions)",
       "Bash(code --uninstall-extension sql-csv-tool.sql-csv-tool)",
       "Bash(npx vsce package --no-dependencies)",
-      "Bash(npx @vscode/vsce publish --no-dependencies)"
+      "Bash(npx @vscode/vsce publish --no-dependencies)",
+      "Bash(git push origin main)",
+      "Bash(git config http.postBuffer 524288000)",
+      "WebFetch(domain:marketplace.visualstudio.com)",
+      "Bash(curl -sI \"https://raw.githubusercontent.com/Ryveal-io/sql-csv-tool/main/packages/extension/images/img_01_sql_chomper_button.png\")"
     ],
     "additionalDirectories": [
       "/Users/msawczuk/Documents/GitHub/sql-csv-tool",

@@ -6,7 +6,7 @@ Stop staring at raw CSV text. Stop copy-pasting into Excel. Stop writing throwaw
 
 Open any CSV. Write SQL. Get results. Chomp chomp.
 
-![Open a CSV and click "Edit CSV" to launch the Chomper](images/img_01_sql_chomper_button.png)
+![Open a CSV and click "Edit CSV" to launch the Chomper](https://raw.githubusercontent.com/Ryveal-io/sql-csv-tool/main/packages/extension/images/img_01_sql_chomper_button.png)
 
 ## Why?
 
@@ -22,7 +22,7 @@ Chomper fixes both problems. **You** get a visual SQL IDE with filtering, editin
 
 Data loads in 10,000-row chunks with automatic pagination as you scroll. The status bar shows exactly where you are — no freezing, no waiting.
 
-![Full query interface with schema explorer, SQL editor, and results table](images/img_02_pane.png)
+![Full query interface with schema explorer, SQL editor, and results table](https://raw.githubusercontent.com/Ryveal-io/sql-csv-tool/main/packages/extension/images/img_02_pane.png)
 
 ### Excel-style column filtering
 
@@ -32,31 +32,31 @@ Click the filter icon on any column header to get a rich filter panel:
 - Null statistics and distinct count
 - Active filters appear as chips above the table — click to remove
 
-![Filter panel showing value checkboxes with frequency counts](images/img_03_column_filter_string.png)
+![Filter panel showing value checkboxes with frequency counts](https://raw.githubusercontent.com/Ryveal-io/sql-csv-tool/main/packages/extension/images/img_03_column_filter_string.png)
 
 ### Date & time intelligence
 
 Date columns get special treatment — histogram buckets by hour, day, week, month, or year. Click any bucket to instantly filter to that time range.
 
-![Date column filter with temporal histogram buckets](images/img_04_column_filter_time_field.png)
+![Date column filter with temporal histogram buckets](https://raw.githubusercontent.com/Ryveal-io/sql-csv-tool/main/packages/extension/images/img_04_column_filter_time_field.png)
 
 ### Edit cells inline and save back
 
 Double-click any cell to edit in place. Changes update the in-memory database instantly. Hit **Save** to write back to disk, or **Save As** to export with custom delimiters, quoting, and formatting.
 
-![Inline cell editing with save and filter tokens](images/img_05_edit_cells_and_save.png)
+![Inline cell editing with save and filter tokens](https://raw.githubusercontent.com/Ryveal-io/sql-csv-tool/main/packages/extension/images/img_05_edit_cells_and_save.png)
 
 ### SQL intellisense
 
 Full autocomplete for table names, column names (auto-quoted when they contain spaces), SQL keywords, and 60+ DuckDB built-in functions.
 
-![SQL autocomplete showing table and column suggestions](images/img_06_sql_intellisense.png)
+![SQL autocomplete showing table and column suggestions](https://raw.githubusercontent.com/Ryveal-io/sql-csv-tool/main/packages/extension/images/img_06_sql_intellisense.png)
 
 ### Scroll through massive files
 
 Virtual scrolling keeps things smooth even with hundreds of thousands of rows. Load more data automatically as you scroll, or run a query to narrow things down.
 
-![Scrolling through a large filtered dataset](images/img_07_fast_paginate.png)
+![Scrolling through a large filtered dataset](https://raw.githubusercontent.com/Ryveal-io/sql-csv-tool/main/packages/extension/images/img_07_fast_paginate.png)
 
 ### Column operations
 
