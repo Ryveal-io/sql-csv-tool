@@ -36,12 +36,16 @@
       "Bash(npx @vscode/vsce package)",
       "Bash(npx @vscode/vsce package --allow-missing-repository)",
       "Bash(npx @vscode/vsce ls)",
-      "Bash(qlmanage -t -s 256 -o /Users/msawczuk/Documents/GitHub/sql-csv-tool/packages/extension/images/ /Users/msawczuk/Documents/GitHub/sql-csv-tool/packages/extension/images/icon.svg)"
+      "Bash(qlmanage -t -s 256 -o /Users/msawczuk/Documents/GitHub/sql-csv-tool/packages/extension/images/ /Users/msawczuk/Documents/GitHub/sql-csv-tool/packages/extension/images/icon.svg)",
+      "Bash(code --uninstall-extension MarkSawczuk.sql-csv-tool)",
+      "Bash(code --list-extensions)",
+      "Bash(code --uninstall-extension sql-csv-tool.sql-csv-tool)"
     ],
     "additionalDirectories": [
       "/Users/msawczuk/Documents/GitHub/sql-csv-tool",
       "/tmp",
-      "/private/tmp"
+      "/private/tmp",
+      "/Users/msawczuk/.vscode/extensions/marksawczuk.sql-csv-tool-0.1.0"
     ]
   }
 }

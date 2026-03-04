@@ -31,9 +31,18 @@ export function useVsCodeMessaging({
     const cleanup = onMessageFromExtension(async (msg: ExtensionToWebviewMessage) => {
       switch (msg.type) {
         case 'load': {
-          const response = await fetch(msg.fileUri);
-          const buffer = await response.arrayBuffer();
-          await callbacksRef.current.onLoad(msg.fileName, new Uint8Array(buffer));
+          try {
+            console.log('[Chomper] Fetching file from URI:', msg.fileUri);
+            const response = await fetch(msg.fileUri);
+            if (!response.ok) {
+              throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+            }
+            const buffer = await response.arrayBuffer();
+            console.log('[Chomper] Fetched', buffer.byteLength, 'bytes');
+            await callbacksRef.current.onLoad(msg.fileName, new Uint8Array(buffer));
+          } catch (err) {
+            console.error('[Chomper] Failed to fetch file:', err);
+          }
           break;
         }
         case 'requestExport':

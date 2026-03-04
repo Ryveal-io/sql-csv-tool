@@ -30,7 +30,9 @@
     "chomper"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:sqlCsvTool.openFile"
+  ],
   "contributes": {
     "customEditors": [
       {

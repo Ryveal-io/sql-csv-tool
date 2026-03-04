@@ -16,8 +16,24 @@ function tableNameFromFileName(fileName: string): string {
   return stem.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1') || 'data';
 }
 
+/**
+ * In VS Code webviews, Vite's `?url` imports produce root-relative paths like
+ * `/assets/duckdb-eh.wasm` which resolve to `vscode-webview://host/assets/...`
+ * and get 403 Forbidden. The extension injects the correct webview resource base
+ * URI as `window.__WEBVIEW_ASSETS_BASE__`. We use it to rewrite asset URLs.
+ */
+function resolveAssetUrl(url: string): string {
+  const base = (window as unknown as Record<string, string>).__WEBVIEW_ASSETS_BASE__;
+  if (base && url.startsWith('/assets/')) {
+    return `${base}/${url.split('/assets/')[1]}`;
+  }
+  return url;
+}
+
 export async function initDuckDb(): Promise<void> {
   if (db) return;
+
+  console.log('[Chomper] initDuckDb: starting');
 
   const MANUAL_BUNDLES: duckdb.DuckDBBundles = {
     mvp: { mainModule: duckdb_wasm, mainWorker: mvp_worker },
@@ -25,11 +41,24 @@ export async function initDuckDb(): Promise<void> {
   };
 
   const bundle = await duckdb.selectBundle(MANUAL_BUNDLES);
-  const worker = new Worker(bundle.mainWorker!);
+
+  const workerUrl = resolveAssetUrl(bundle.mainWorker!);
+  const wasmUrl = resolveAssetUrl(bundle.mainModule);
+  console.log('[Chomper] initDuckDb: worker URL:', workerUrl);
+  console.log('[Chomper] initDuckDb: WASM URL:', wasmUrl);
+
+  // In VS Code webviews, `new Worker(url)` is intercepted and can fail.
+  // Fetch the worker script and create a blob URL to bypass this.
+  const workerScript = await fetch(workerUrl).then(r => r.text());
+  console.log('[Chomper] initDuckDb: worker script fetched, length:', workerScript.length);
+  const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
+  const worker = new Worker(URL.createObjectURL(workerBlob));
+
   const logger = new duckdb.ConsoleLogger();
   db = new duckdb.AsyncDuckDB(logger, worker);
-  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  await db.instantiate(wasmUrl, bundle.pthreadWorker ? resolveAssetUrl(bundle.pthreadWorker) : undefined);
   conn = await db.connect();
+  console.log('[Chomper] initDuckDb: ready!');
 }
 
 export async function loadCsvFromBytes(
