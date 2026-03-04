@@ -49,14 +49,24 @@ export async function initDuckDb(): Promise<void> {
 
   // In VS Code webviews, `new Worker(url)` is intercepted and can fail.
   // Fetch the worker script and create a blob URL to bypass this.
-  const workerScript = await fetch(workerUrl).then(r => r.text());
+  // Also fetch WASM as bytes since the blob worker can't access webview resource URLs.
+  const [workerScript, wasmBuffer] = await Promise.all([
+    fetch(workerUrl).then(r => r.text()),
+    fetch(wasmUrl).then(r => {
+      if (!r.ok) throw new Error(`WASM fetch failed: ${r.status} ${r.statusText} for ${wasmUrl}`);
+      return r.arrayBuffer();
+    }),
+  ]);
   console.log('[Chomper] initDuckDb: worker script fetched, length:', workerScript.length);
+  console.log('[Chomper] initDuckDb: WASM fetched, size:', wasmBuffer.byteLength);
   const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
+  const wasmBlob = new Blob([wasmBuffer], { type: 'application/wasm' });
+  const wasmBlobUrl = URL.createObjectURL(wasmBlob);
   const worker = new Worker(URL.createObjectURL(workerBlob));
 
   const logger = new duckdb.ConsoleLogger();
   db = new duckdb.AsyncDuckDB(logger, worker);
-  await db.instantiate(wasmUrl, bundle.pthreadWorker ? resolveAssetUrl(bundle.pthreadWorker) : undefined);
+  await db.instantiate(wasmBlobUrl);
   conn = await db.connect();
   console.log('[Chomper] initDuckDb: ready!');
 }

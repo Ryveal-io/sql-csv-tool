@@ -138,7 +138,7 @@ export function SqlEditor({ value, onChange, onRun, tableSchemas }: SqlEditorPro
                 label: col.name,
                 kind: monaco.languages.CompletionItemKind.Field,
                 detail: `${tableName}.${col.name}: ${col.type}`,
-                insertText: col.name,
+                insertText: /^[a-zA-Z_]\w*$/.test(col.name) ? col.name : `"${col.name}"`,
                 range: dotRange,
               })),
             };
@@ -168,7 +168,7 @@ export function SqlEditor({ value, onChange, onRun, tableSchemas }: SqlEditorPro
             label: name,
             kind: monaco.languages.CompletionItemKind.Field,
             detail: type,
-            insertText: name,
+            insertText: /^[a-zA-Z_]\w*$/.test(name) ? name : `"${name}"`,
             range,
           })),
 

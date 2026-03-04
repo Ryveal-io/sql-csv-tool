@@ -1,102 +1,142 @@
-# SQL CSV Tool
+# SQL CSV Chomper
 
-Query and edit CSV files using SQL — right inside VS Code. Powered by [DuckDB](https://duckdb.org/) running entirely in your browser, with no external database required.
+**SQL tools for you. SQL tools for your LLM.**
 
-<!-- ![SQL CSV Tool Overview](images/overview.png) -->
+Stop staring at raw CSV text. Stop copy-pasting into Excel. Stop writing throwaway Python scripts just to peek at your data. SQL CSV Chomper turns VS Code into a fast, lightweight SQL workbench for your data files — powered by [DuckDB WASM](https://duckdb.org/) running entirely in your browser. No server, no database, no nonsense.
 
-## The Problem
+Open any CSV. Write SQL. Get results. Chomp chomp.
 
-Working with CSV files in VS Code means either staring at raw text or switching to an external tool. Need to filter 500K rows? Join two CSVs? Edit a value and save? You're stuck copy-pasting into Excel, writing Python scripts, or installing a full database.
+![Open a CSV and click "Edit CSV" to launch the Chomper](images/img_01_sql_chomper_button.png)
 
-## The Solution
+## Why?
 
-SQL CSV Tool turns VS Code into a lightweight SQL IDE for your data files. Open any CSV, write SQL, see results instantly. Edit cells inline, filter columns visually, and save back — all without leaving your editor.
+Working with CSV files in VS Code has always been painful. Need to filter 500K rows? Join two CSVs? Edit a single value and save? Your options were Excel, a Python REPL, or a full database setup. None of those live inside your editor.
+
+And if you're working with an AI assistant? Every CSV operation means another round-trip — "write me a script to filter this", "now save it back", "actually change that column name first". It's slow.
+
+Chomper fixes both problems. **You** get a visual SQL IDE with filtering, editing, and sorting. **Your AI** gets an MCP server with direct SQL access to your files. Everyone chomps faster.
 
 ## Features
 
-### SQL Query Editor
-Write DuckDB SQL with full autocomplete for table names, column names, keywords, and 60+ built-in functions. Format your SQL with one click or Shift+Alt+F.
+### Query 500K+ rows without breaking a sweat
 
-<!-- ![SQL Editor with autocomplete](images/sql-editor.png) -->
+Data loads in 10,000-row chunks with automatic pagination as you scroll. The status bar shows exactly where you are — no freezing, no waiting.
 
-### Virtual Scrolling for Large Files
-Load 500K+ row files without freezing. Data loads in 10,000-row chunks with automatic pagination as you scroll. The status bar shows "10,000 of 500,000 rows" so you always know where you are.
+![Full query interface with schema explorer, SQL editor, and results table](images/img_02_pane.png)
 
-<!-- ![Virtual scrolling with large dataset](images/virtual-scroll.png) -->
+### Excel-style column filtering
 
-### Excel-Style Column Filtering
-Click the filter icon on any column header to get a rich filter panel with:
-- Value checkboxes with frequency bars
-- Search to filter the value list (Select All respects your search)
+Click the filter icon on any column header to get a rich filter panel:
+- Value checkboxes with frequency bars and counts
+- Search within the value list (Select All respects your search)
 - Null statistics and distinct count
-- Numeric stats (min, max, avg, median)
-- Date bucketing (hour/day/week/month/year)
+- Active filters appear as chips above the table — click to remove
 
-Active filters show as blue chips above the table with one-click removal.
+![Filter panel showing value checkboxes with frequency counts](images/img_03_column_filter_string.png)
 
-<!-- ![Column filter panel](images/column-filter.png) -->
+### Date & time intelligence
 
-### Inline Cell Editing
-Double-click any cell to edit. Changes save to the in-memory DuckDB database instantly without re-fetching the entire dataset. Click **Save** to write back to disk.
+Date columns get special treatment — histogram buckets by hour, day, week, month, or year. Click any bucket to instantly filter to that time range.
 
-### Column Operations
-Right-click any column header to:
-- **Rename** the column
-- **Insert** a new column left or right
-- **Delete** the column
+![Date column filter with temporal histogram buckets](images/img_04_column_filter_time_field.png)
+
+### Edit cells inline and save back
+
+Double-click any cell to edit in place. Changes update the in-memory database instantly. Hit **Save** to write back to disk, or **Save As** to export with custom delimiters, quoting, and formatting.
+
+![Inline cell editing with save and filter tokens](images/img_05_edit_cells_and_save.png)
+
+### SQL intellisense
+
+Full autocomplete for table names, column names (auto-quoted when they contain spaces), SQL keywords, and 60+ DuckDB built-in functions.
+
+![SQL autocomplete showing table and column suggestions](images/img_06_sql_intellisense.png)
+
+### Scroll through massive files
+
+Virtual scrolling keeps things smooth even with hundreds of thousands of rows. Load more data automatically as you scroll, or run a query to narrow things down.
+
+![Scrolling through a large filtered dataset](images/img_07_fast_paginate.png)
+
+### Column operations
+
+Right-click any column header to rename, insert, or delete columns. Load multiple files and JOIN across them — the schema explorer shows every table with columns, types, unique counts, and null percentages.
 
 ### Find & Replace
-Search and replace across any column with case-sensitive and regex options. Live match count shows how many values will change before you commit.
 
-<!-- ![Find and Replace](images/find-replace.png) -->
+Search and replace across any column with case-sensitive and regex support. Live match count shows how many values will change before you commit.
 
-### Save As with Options
-Export your data with custom formatting:
+### Save As with options
+
+Export your data exactly how you need it:
 - **Delimiter**: comma, tab, pipe, semicolon, or custom
 - **Quoting**: always, as needed, or never
-- **Options**: include/exclude header row, add row numbers
-- **Extension**: .csv, .tsv, .txt
+- **Options**: include/exclude header, add row numbers
+- **Format**: .csv, .tsv, .txt
 
-<!-- ![Save As dialog](images/save-as.png) -->
+## MCP Server — Let your AI chomp too
 
-### Multi-Table Support
-Load multiple CSV files and query across them with JOINs. The schema explorer shows all loaded tables with their columns, types, and row counts.
-
-### Sort
-Click column headers to sort ascending/descending. A subtle arrow appears on hover so you know columns are sortable. Row numbers update to reflect the sorted order.
-
-## MCP Server for AI Integration
-
-SQL CSV Tool includes a bundled **MCP (Model Context Protocol) server** that lets AI assistants like Claude and GitHub Copilot work with your CSV files.
+SQL CSV Chomper includes a bundled **MCP (Model Context Protocol) server** so AI assistants can work with your CSV files directly. No more "write me a Python script to filter column X" — just let them query.
 
 ### GitHub Copilot
-The MCP server registers automatically in VS Code 1.99+. Copilot can load files, run queries, edit data, and push SQL into the editor.
 
-### Claude CLI
-Use the Command Palette:
+The MCP server registers automatically in VS Code 1.99+. Copilot can load files, run queries, edit data, and push results into the visual editor.
 
-1. Open Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
-2. Search for **"SQL CSV Tool: Configure MCP for Claude CLI"**
+### Claude Code
+
+**Option 1 — From VS Code** (easiest):
+
+1. `Cmd+Shift+P` (or `Ctrl+Shift+P`)
+2. Search **"SQL CSV Chomper: Configure MCP for Claude CLI"**
 3. Choose **User** (all projects) or **Project** (this workspace)
-4. Done — Claude can now query your CSVs
+4. Done — Claude can now chomp your CSVs
 
-### Available MCP Tools
+**Option 2 — From the terminal**:
 
-| Tool | Description |
+```bash
+# Find the extension's MCP server path
+CHOMPER_MCP="$(find ~/.vscode/extensions -path '*/sql-csv-chomper-*/out/mcp/server.js' | head -1)"
+
+# Add for all projects
+claude mcp add sql-csv-tool --scope user -- node "$CHOMPER_MCP"
+
+# Or add for just the current project
+claude mcp add sql-csv-tool --scope project -- node "$CHOMPER_MCP"
+```
+
+**Option 3 — Manual config** (add to `~/.claude/settings.json` or `.claude/settings.json` in your project):
+
+```json
+{
+  "mcpServers": {
+    "sql-csv-tool": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["~/.vscode/extensions/marksawczuk.sql-csv-chomper-0.1.1/out/mcp/server.js"]
+    }
+  }
+}
+```
+
+> **Note:** The version number in the path (e.g. `0.1.1`) will change with updates. Use the `find` command above or the VS Code command palette to get the correct path.
+
+### MCP tools available
+
+| Tool | What it does |
 |------|-------------|
 | `load_csv` | Load a CSV/TSV file as a named table |
-| `execute_sql` | Run SQL queries against loaded tables |
+| `execute_sql` | Run any SQL query |
 | `list_tables` | List all loaded tables |
-| `list_columns` | Get column names and types for a table |
-| `get_schema` | Get schema for all loaded tables |
-| `update_rows` | Update rows matching a WHERE condition |
+| `list_columns` | Get column names and types |
+| `get_schema` | Full schema for all tables |
+| `update_rows` | Update rows matching a condition |
 | `insert_row` | Insert a new row |
-| `delete_rows` | Delete rows matching a WHERE condition |
-| `save_table` | Export a table back to a CSV file |
-| `set_editor_sql` | Push SQL into the VS Code editor pane |
-| `run_editor_query` | Set and execute SQL in the VS Code editor |
+| `delete_rows` | Delete matching rows |
+| `save_table` | Export a table to CSV |
+| `set_editor_sql` | Push SQL into the editor |
+| `run_editor_query` | Set and run SQL in the editor |
 
-## Keyboard Shortcuts
+## Keyboard shortcuts
 
 | Shortcut | Action |
 |----------|--------|
@@ -104,31 +144,30 @@ Use the Command Palette:
 | `Shift+Alt+F` | Format SQL |
 | `Ctrl+H` | Toggle Find & Replace |
 | `Escape` | Close menus / cancel edit |
-| `Ctrl+Click` | Multi-select cells |
 | `Right-click cell` | Context menu with filter options |
-| `Right-click header` | Column operations (rename, insert, delete) |
+| `Right-click header` | Column operations |
 
-## Supported File Types
+## Supported files
 
-| Extension | Description |
-|-----------|-------------|
+| Extension | Format |
+|-----------|--------|
 | `.csv` | Comma-separated values |
 | `.tsv` | Tab-separated values |
 | `.tab` | Tab-delimited |
-| `.txt` | Text files (auto-detected delimiter) |
+| `.txt` | Text (auto-detected delimiter) |
 | `.jsonl` | JSON Lines |
 
-## How It Works
+## How it works
 
-- **DuckDB WASM** runs entirely in your browser — no server, no external database
-- Files are loaded into an in-memory DuckDB instance when you open them
-- SQL queries execute against this in-memory database at native speed
-- Edits modify the in-memory table; click **Save** to write back to disk
-- The MCP server uses a separate DuckDB instance for AI-driven workflows
+- **DuckDB WASM** runs entirely in your browser — zero external dependencies
+- Files load into an in-memory DuckDB instance when opened
+- SQL executes at native speed against the in-memory database
+- Edits modify the in-memory table; **Save** writes back to disk
+- The MCP server runs a separate DuckDB instance for AI workflows
 
 ## Requirements
 
-- VS Code 1.85 or later
+- VS Code 1.85+
 - Node.js (for the MCP server only)
 
 ## License
