@@ -82,45 +82,9 @@ SQL CSV Chomper includes a bundled **MCP (Model Context Protocol) server** so AI
 
 The MCP server registers automatically in VS Code 1.99+. Copilot can load files, run queries, edit data, and push results into the visual editor.
 
-### Claude CLI check if installed (Windows and Mac OS)
-
-See if you have an old version installed, remove it if necessary before upgrading:
-```bash
-claude mcp list
-claude mcp remove sql-csv-chomper
-```
-
-### Claude CLI. MCP install for Mac OS
-```bash
-EXT_LATEST="$(ls -d "$HOME/.vscode/extensions/marksawczuk.sql-csv-chomper-"* | sort -V | tail -n 1)"
-echo "Using: $EXT_LATEST"
-find "$EXT_LATEST/out/mcp" -maxdepth 3 -type f -name "*.js"
-
-# now pick the right entry file from the list above and set it here:
-ENTRY="$EXT_LATEST/out/mcp/<ENTRYFILE>.js"
-
-claude mcp add --transport stdio sql-csv-chomper -- node "$ENTRY"
-```
-
-### Claude CLI install from Windows PowerShell
-```powershell
-$ExtBase = Join-Path $HOME ".vscode\extensions"
-
-$ExtLatest = Get-ChildItem -Path $ExtBase -Directory |
-  Where-Object { $_.Name -like "marksawczuk.sql-csv-chomper-*" } |
-  Sort-Object Name |
-  Select-Object -Last 1
-
-if (-not $ExtLatest) {
-  throw "Could not find marksawczuk.sql-csv-chomper-* under $ExtBase. Install the VS Code extension first."
-}
-
-$ExtPath = $ExtLatest.FullName
-Write-Host "Using extension folder:" $ExtPath
-```
-
-
 ### Claude Code
+
+The entry point is `out/mcp/launcher.mjs` — it auto-installs the native DuckDB binary on first run (takes ~10 seconds).
 
 **Option 1 — From VS Code** (easiest):
 
@@ -129,34 +93,38 @@ Write-Host "Using extension folder:" $ExtPath
 3. Choose **User** (all projects) or **Project** (this workspace)
 4. Done — Claude can now chomp your CSVs
 
-**Option 2 — From the terminal**:
+**Option 2 — macOS / Linux terminal**:
 
 ```bash
-# Find the extension's MCP server path
-CHOMPER_MCP="$(find ~/.vscode/extensions -path '*/sql-csv-chomper-*/out/mcp/server.js' | head -1)"
+# Auto-find the latest installed version
+CHOMPER="$(ls -d ~/.vscode/extensions/marksawczuk.sql-csv-chomper-*/out/mcp/launcher.mjs | sort -V | tail -1)"
+echo "Using: $CHOMPER"
 
-# Add for all projects
-claude mcp add sql-csv-tool --scope user -- node "$CHOMPER_MCP"
-
-# Or add for just the current project
-claude mcp add sql-csv-tool --scope project -- node "$CHOMPER_MCP"
+# Add to Claude (pick one)
+claude mcp add sql-csv-chomper --scope user -- node "$CHOMPER"
+claude mcp add sql-csv-chomper --scope project -- node "$CHOMPER"
 ```
 
-**Option 3 — Manual config** (add to `~/.claude/settings.json` or `.claude/settings.json` in your project):
+**Option 3 — Windows PowerShell**:
 
-```json
-{
-  "mcpServers": {
-    "sql-csv-tool": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["~/.vscode/extensions/marksawczuk.sql-csv-chomper-0.2.0/out/mcp/server.js"]
-    }
-  }
-}
+```powershell
+# Auto-find the latest installed version
+$Ext = Get-ChildItem "$HOME\.vscode\extensions" -Directory |
+  Where-Object { $_.Name -like "marksawczuk.sql-csv-chomper-*" } |
+  Sort-Object Name | Select-Object -Last 1
+
+$Launcher = Join-Path $Ext.FullName "out\mcp\launcher.mjs"
+Write-Host "Using: $Launcher"
+
+# Add to Claude (pick one)
+claude mcp add sql-csv-chomper --scope user -- node $Launcher
+claude mcp add sql-csv-chomper --scope project -- node $Launcher
 ```
 
-> **Note:** The version number in the path (e.g. `0.2.0`) will change with updates. Use the `find` command above or the VS Code command palette to get the correct path.
+**Upgrading?** Remove the old MCP first:
+```bash
+claude mcp remove sql-csv-chomper
+```
 
 ### MCP tools available
 

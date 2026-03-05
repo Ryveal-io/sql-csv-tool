@@ -51,7 +51,9 @@
       "Bash(python3:*)",
       "Bash(claude mcp:*)",
       "Bash(timeout 5 node launcher.mjs)",
-      "Bash(/Users/msawczuk/Documents/GitHub/sql-csv-tool/packages/extension/.vscodeignore:*)"
+      "Bash(/Users/msawczuk/Documents/GitHub/sql-csv-tool/packages/extension/.vscodeignore:*)",
+      "Bash(git add -A)",
+      "Bash(git commit -m \"fix: Windows MCP launcher - use npm.cmd, better error output, cleaner README\")"
     ],
     "additionalDirectories": [
       "/Users/msawczuk/Documents/GitHub/sql-csv-tool",
