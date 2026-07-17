@@ -5,13 +5,14 @@ interface ToolbarProps {
   isDirty?: boolean;
   onSave?: () => void;
   onSaveAs?: () => void;
+  onLoadOptions?: () => void;
   onFormat?: () => void;
   onToggleFindReplace?: () => void;
   showFindReplace?: boolean;
   hasActiveTable?: boolean;
 }
 
-export function Toolbar({ onRun, isLoading, fileName, isDirty, onSave, onSaveAs, onFormat, onToggleFindReplace, showFindReplace, hasActiveTable }: ToolbarProps) {
+export function Toolbar({ onRun, isLoading, fileName, isDirty, onSave, onSaveAs, onLoadOptions, onFormat, onToggleFindReplace, showFindReplace, hasActiveTable }: ToolbarProps) {
   return (
     <div className="toolbar">
       <div className="toolbar-left">
@@ -26,6 +27,15 @@ export function Toolbar({ onRun, isLoading, fileName, isDirty, onSave, onSaveAs,
         {hasActiveTable && onSaveAs && (
           <button className="toolbar-btn" onClick={onSaveAs}>
             Save As...
+          </button>
+        )}
+        {hasActiveTable && onLoadOptions && (
+          <button
+            className="toolbar-btn"
+            onClick={onLoadOptions}
+            title="Re-read this file with a different delimiter, header or encoding"
+          >
+            Load Options...
           </button>
         )}
         {onFormat && (

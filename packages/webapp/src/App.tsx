@@ -8,6 +8,7 @@ import { StatusBar } from './components/StatusBar';
 import { SchemaExplorer } from './components/SchemaExplorer';
 import { FindReplaceBar } from './components/FindReplaceBar';
 import { SaveAsDialog, type SaveAsOptions } from './components/SaveAsDialog';
+import { LoadOptionsDialog } from './components/LoadOptionsDialog';
 import type { FilterSelection } from './components/ColumnFilterPanel';
 import { useDuckDb } from './hooks/useDuckDb';
 import { useQueryExecution } from './hooks/useQueryExecution';
@@ -25,7 +26,10 @@ import {
   dropColumn,
   reorderColumns,
   findReplaceInColumn,
+  getTableDialect,
+  reloadTableWithOptions,
 } from './services/duckdb';
+import type { CsvLoadOptions } from './types/dialect';
 import { clearProfileCache } from './components/ColumnFilterPanel';
 import { postMessageToExtension } from './services/vscodeMessenger';
 import { pickFile } from './services/standaloneAdapter';
@@ -89,17 +93,24 @@ export default function App() {
   const [columnFilterSelections, setColumnFilterSelections] = useState<Map<string, FilterSelection>>(new Map());
   const [showFindReplace, setShowFindReplace] = useState(false);
   const [showSaveAs, setShowSaveAs] = useState(false);
+  const [showLoadOptions, setShowLoadOptions] = useState(false);
 
   const { isReady, isLoading: dbLoading, error: dbError, loadFile } = useDuckDb();
   const { result, totalQueryRows, hasMore, error: queryError, isExecuting, isFetchingMore, runQuery, fetchMore, updateRow } = useQueryExecution();
 
-  const handleLoad = useCallback(async (name: string, content: Uint8Array) => {
-    const tableName = await loadFile(name, content);
+  /** Refresh a table's entry after it has been (re)parsed, and show it. */
+  const adoptTable = useCallback(async (tableName: string, fileName: string) => {
     const columns = await describeTable(tableName);
     const rowCount = await getTableRowCount(tableName);
     setTables(prev => {
       const existing = prev.findIndex(t => t.name === tableName);
-      const entry: TableInfo = { name: tableName, fileName: name, columns, rowCount };
+      const entry: TableInfo = {
+        name: tableName,
+        fileName,
+        columns,
+        rowCount,
+        dialect: getTableDialect(tableName),
+      };
       if (existing >= 0) {
         const next = [...prev];
         next[existing] = entry;
@@ -112,7 +123,28 @@ export default function App() {
     const query = defaultQueryForTable(tableName);
     setSql(query);
     runQuery(query);
-  }, [loadFile, runQuery]);
+  }, [runQuery]);
+
+  const handleLoad = useCallback(async (name: string, content: Uint8Array) => {
+    const tableName = await loadFile(name, content);
+    await adoptTable(tableName, name);
+  }, [loadFile, adoptTable]);
+
+  /** Re-parse the active table's file with corrected delimiter/header options. */
+  const handleReloadWithOptions = useCallback(async (options: CsvLoadOptions) => {
+    if (!activeTable) return;
+    const fileName = tables.find(t => t.name === activeTable)?.fileName;
+    if (!fileName) return;
+    setShowLoadOptions(false);
+    const tableName = await reloadTableWithOptions(activeTable, options);
+    clearProfileCache(tableName);
+    setDirtyTables(prev => {
+      const next = new Set(prev);
+      next.delete(tableName);
+      return next;
+    });
+    await adoptTable(tableName, fileName);
+  }, [activeTable, tables, adoptTable]);
 
   const handleSelectTable = useCallback((tableName: string) => {
     setActiveTable(tableName);
@@ -371,14 +403,16 @@ export default function App() {
     return schemas;
   }, [tables]);
 
-  // Get active table's columns for result type hints
-  const activeColumns = useMemo(() => {
-    return tables.find(t => t.name === activeTable)?.columns ?? [];
-  }, [tables, activeTable]);
+  const activeTableInfo = useMemo(
+    () => tables.find(t => t.name === activeTable),
+    [tables, activeTable]
+  );
 
-  const totalRows = tables.find(t => t.name === activeTable)?.rowCount;
+  // Get active table's columns for result type hints
+  const activeColumns = activeTableInfo?.columns ?? [];
+  const totalRows = activeTableInfo?.rowCount;
   const error = dbError || queryError;
-  const activeFileName = tables.find(t => t.name === activeTable)?.fileName ?? '';
+  const activeFileName = activeTableInfo?.fileName ?? '';
   const isDirty = activeTable ? dirtyTables.has(activeTable) : false;
 
   return (<>
@@ -391,6 +425,7 @@ export default function App() {
           isDirty={isDirty}
           onSave={handleSave}
           onSaveAs={() => setShowSaveAs(true)}
+          onLoadOptions={() => setShowLoadOptions(true)}
           onFormat={handleFormat}
           onToggleFindReplace={() => setShowFindReplace(prev => !prev)}
           showFindReplace={showFindReplace}
@@ -447,8 +482,17 @@ export default function App() {
     />
     {showSaveAs && (
       <SaveAsDialog
+        dialect={activeTableInfo?.dialect}
         onSave={handleSaveAs}
         onClose={() => setShowSaveAs(false)}
+      />
+    )}
+    {showLoadOptions && activeTableInfo && (
+      <LoadOptionsDialog
+        dialect={activeTableInfo.dialect}
+        fileName={activeTableInfo.fileName}
+        onReload={handleReloadWithOptions}
+        onClose={() => setShowLoadOptions(false)}
       />
     )}
   </>

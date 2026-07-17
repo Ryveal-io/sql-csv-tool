@@ -4,16 +4,33 @@ import mvp_worker from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?ur
 import duckdb_wasm_eh from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
 import eh_worker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
 import type { QueryColumn, QueryResult } from '../types/query';
+import type { CsvDialect, CsvLoadOptions } from '../types/dialect';
+import { DEFAULT_DIALECT, normalizeSniffed } from '../types/dialect';
 
 let db: duckdb.AsyncDuckDB | null = null;
 let conn: duckdb.AsyncDuckDBConnection | null = null;
 
-// Track loaded tables: tableName -> originalFileName
-const loadedTables = new Map<string, string>();
+export interface LoadedTable {
+  fileName: string;
+  dialect: CsvDialect;
+}
+
+// Track loaded tables: tableName -> { originalFileName, detected dialect }
+const loadedTables = new Map<string, LoadedTable>();
 
 function tableNameFromFileName(fileName: string): string {
   const stem = fileName.replace(/\.[^.]+$/, '');
   return stem.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1') || 'data';
+}
+
+/** Quote a SQL identifier. */
+function ident(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/** Quote a SQL string literal. */
+function lit(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 /**
@@ -71,21 +88,145 @@ export async function initDuckDb(): Promise<void> {
   console.log('[Chomper] initDuckDb: ready!');
 }
 
+/**
+ * Ask DuckDB to detect a registered file's dialect.
+ *
+ * Returns null if sniffing is unavailable or fails, in which case callers fall
+ * back to `read_csv_auto` and the default dialect — a worse round-trip, but
+ * still a successful open.
+ */
+export async function sniffCsv(fileName: string): Promise<CsvDialect | null> {
+  if (!conn) throw new Error('DuckDB not connected');
+  try {
+    const result = await conn.query(`SELECT * FROM sniff_csv(${lit(fileName)})`);
+    if (result.numRows === 0) return null;
+
+    const read = (col: string) => result.getChild(col)?.get(0);
+    const skipRows = Number(read('SkipRows') ?? 0);
+    const dateFormat = normalizeSniffed(read('DateFormat'));
+    const timestampFormat = normalizeSniffed(read('TimestampFormat'));
+
+    return {
+      delimiter: normalizeSniffed(read('Delimiter')) || ',',
+      quote: normalizeSniffed(read('Quote')),
+      escape: normalizeSniffed(read('Escape')),
+      newline: normalizeSniffed(read('NewLineDelimiter')) || '\n',
+      hasHeader: Boolean(read('HasHeader')),
+      skipRows: Number.isFinite(skipRows) ? skipRows : 0,
+      dateFormat: dateFormat || undefined,
+      timestampFormat: timestampFormat || undefined,
+    };
+  } catch (err) {
+    console.warn('[Chomper] sniff_csv failed, falling back to auto-detect:', err);
+    return null;
+  }
+}
+
+/**
+ * The only row delimiters DuckDB's `new_line` option accepts, spelled the way
+ * it wants them: the literal backslash tokens, not the control characters.
+ * `sniff_csv` reports NewLineDelimiter in this same form.
+ */
+const NEWLINE_TOKENS = ['\\r', '\\n', '\\r\\n'];
+
+/** Build the option list for a `read_csv()` call from a resolved dialect. */
+function readOptions(dialect: CsvDialect, options: CsvLoadOptions): string[] {
+  const opts = [
+    `delim=${lit(dialect.delimiter)}`,
+    `quote=${lit(dialect.quote)}`,
+    `escape=${lit(dialect.escape)}`,
+    `header=${dialect.hasHeader}`,
+    `skip=${dialect.skipRows}`,
+  ];
+  // Only pinned on explicit request. The sniffed value already agrees with the
+  // file, so pinning it would buy nothing while making loads stricter than
+  // auto-detection — a file with mixed line endings that DuckDB currently
+  // copes with would start failing.
+  if (options.newline !== undefined && NEWLINE_TOKENS.includes(options.newline)) {
+    opts.push(`new_line=${lit(options.newline)}`);
+  }
+  if (dialect.dateFormat) opts.push(`dateformat=${lit(dialect.dateFormat)}`);
+  if (dialect.timestampFormat) opts.push(`timestampformat=${lit(dialect.timestampFormat)}`);
+  if (dialect.encoding) opts.push(`encoding=${lit(dialect.encoding)}`);
+  if (options.allVarchar) opts.push('all_varchar=true');
+  if (options.ignoreErrors) opts.push('ignore_errors=true');
+  return opts;
+}
+
+/**
+ * Load a CSV/TSV/delimited file into a table.
+ *
+ * The file's dialect is sniffed and then overlaid with any explicit `options`,
+ * so callers only override what detection got wrong. The resolved dialect is
+ * retained so the file can later be written back in its original format.
+ */
 export async function loadCsvFromBytes(
   fileName: string,
-  content: Uint8Array
+  content: Uint8Array,
+  options: CsvLoadOptions = {}
 ): Promise<string> {
   if (!db || !conn) throw new Error('DuckDB not initialized');
 
   const tableName = tableNameFromFileName(fileName);
+  // Re-registering a name that is already taken can fail, and reloading the
+  // same file with different options is a normal thing to do. The table is
+  // materialized by CREATE TABLE AS, so nothing points at the old buffer.
+  await db.dropFile(fileName).catch(() => undefined);
   await db.registerFileBuffer(fileName, content);
+
+  const sniffed = await sniffCsv(fileName);
+  const dialect: CsvDialect = {
+    ...DEFAULT_DIALECT,
+    ...(sniffed ?? {}),
+    ...(options.delimiter !== undefined && { delimiter: options.delimiter }),
+    ...(options.quote !== undefined && { quote: options.quote }),
+    ...(options.escape !== undefined && { escape: options.escape }),
+    ...(options.newline !== undefined && { newline: options.newline }),
+    ...(options.hasHeader !== undefined && { hasHeader: options.hasHeader }),
+    ...(options.skipRows !== undefined && { skipRows: options.skipRows }),
+    ...(options.encoding !== undefined && { encoding: options.encoding }),
+    ...(options.dateFormat !== undefined && { dateFormat: options.dateFormat }),
+  };
+
+  // With nothing sniffed and nothing overridden we have no better information
+  // than DuckDB's own auto-detection, so let it do the work.
+  const useAuto = !sniffed && Object.keys(options).length === 0;
+  const source = useAuto
+    ? `read_csv_auto(${lit(fileName)})`
+    : `read_csv(${lit(fileName)}, ${readOptions(dialect, options).join(', ')})`;
+
   await conn.query(`
-    CREATE OR REPLACE TABLE "${tableName}" AS
-    SELECT * FROM read_csv_auto('${fileName}')
+    CREATE OR REPLACE TABLE ${ident(tableName)} AS
+    SELECT * FROM ${source}
   `);
 
-  loadedTables.set(tableName, fileName);
+  loadedTables.set(tableName, { fileName, dialect });
   return tableName;
+}
+
+/** The dialect a table was loaded with, if known. */
+export function getTableDialect(tableName: string): CsvDialect | undefined {
+  return loadedTables.get(tableName)?.dialect;
+}
+
+/**
+ * Re-parse an already-loaded file with different options, for when detection
+ * guessed the delimiter or header wrong.
+ *
+ * Reuses the buffer registered at load time rather than asking the caller to
+ * hold the file bytes a second time. Any edits made to the table are discarded,
+ * since this reparses the file from source.
+ */
+export async function reloadTableWithOptions(
+  tableName: string,
+  options: CsvLoadOptions
+): Promise<string> {
+  if (!db || !conn) throw new Error('DuckDB not initialized');
+  const entry = loadedTables.get(tableName);
+  if (!entry) throw new Error(`Table "${tableName}" was not loaded from a file`);
+
+  const bytes = await db.copyFileToBuffer(entry.fileName);
+  return loadCsvFromBytes(entry.fileName, bytes, options);
 }
 
 export async function describeTable(tableName: string): Promise<QueryColumn[]> {
@@ -103,8 +244,62 @@ export async function describeTable(tableName: string): Promise<QueryColumn[]> {
   return columns;
 }
 
-export function getLoadedTables(): Map<string, string> {
+export function getLoadedTables(): Map<string, LoadedTable> {
   return new Map(loadedTables);
+}
+
+export interface WriteOptions {
+  delimiter: string;
+  quoteStyle: 'always' | 'as-needed' | 'never';
+  includeHeader: boolean;
+  includeRowNumbers?: boolean;
+  dateFormat?: string;
+}
+
+/**
+ * Write options that reproduce the file's original format. Used for plain Save,
+ * where the intent is to edit a file in place rather than convert it.
+ */
+export function writeOptionsForTable(tableName: string): WriteOptions {
+  const dialect = getTableDialect(tableName) ?? DEFAULT_DIALECT;
+  return {
+    delimiter: dialect.delimiter,
+    quoteStyle: 'as-needed',
+    includeHeader: dialect.hasHeader,
+    dateFormat: dialect.dateFormat,
+  };
+}
+
+/** Render a COPY ... (FORMAT CSV, ...) option list. */
+function copyOptions(options: WriteOptions): string {
+  const opts = ['FORMAT CSV', `DELIMITER ${lit(options.delimiter)}`];
+  if (options.includeHeader) opts.push('HEADER');
+  if (options.quoteStyle === 'always') {
+    opts.push('FORCE_QUOTE *');
+  } else if (options.quoteStyle === 'never') {
+    // Emits values raw. A value containing the delimiter then reads back as two
+    // fields, so this can produce a file that no longer parses — offered only
+    // because some downstream fixed-format readers reject quotes outright.
+    opts.push("QUOTE ''");
+  }
+  if (options.dateFormat) opts.push(`DATEFORMAT ${lit(options.dateFormat)}`);
+  return opts.join(', ');
+}
+
+/** Run a COPY to an in-memory file and hand back the resulting bytes. */
+async function copyToBytes(
+  sourceExpr: string,
+  options: WriteOptions,
+  scratchFile: string
+): Promise<Uint8Array> {
+  if (!conn || !db) throw new Error('DuckDB not connected');
+  await conn.query(`COPY ${sourceExpr} TO ${lit(scratchFile)} (${copyOptions(options)})`);
+  try {
+    return await db.copyFileToBuffer(scratchFile);
+  } finally {
+    // Without this the next COPY to the same name fails or serves stale bytes.
+    await db.dropFile(scratchFile).catch(() => undefined);
+  }
 }
 
 export async function executeQuery(sql: string): Promise<QueryResult> {
@@ -134,14 +329,12 @@ export async function executeQuery(sql: string): Promise<QueryResult> {
 export async function exportCsv(tableName?: string): Promise<Uint8Array> {
   if (!conn || !db) throw new Error('DuckDB not connected');
   const table = tableName || (loadedTables.keys().next().value ?? 'data');
-  await conn.query(`COPY "${table}" TO 'export.csv' (FORMAT CSV, HEADER)`);
-  const buffer = await db.copyFileToBuffer('export.csv');
-  return buffer;
+  return copyToBytes(ident(table), writeOptionsForTable(table), 'export.csv');
 }
 
 export async function dropTable(tableName: string): Promise<void> {
   if (!conn) throw new Error('DuckDB not connected');
-  await conn.query(`DROP TABLE IF EXISTS "${tableName}"`);
+  await conn.query(`DROP TABLE IF EXISTS ${ident(tableName)}`);
   loadedTables.delete(tableName);
 }
 
@@ -165,10 +358,13 @@ export async function updateCell(
   await conn.query(`UPDATE "${tableName}" SET "${escaped}" = ${valExpr} WHERE rowid = ${rowid}`);
 }
 
+/**
+ * Serialize a table for an in-place Save, reproducing the dialect it was loaded
+ * with. Saving must not silently convert a pipe-delimited or tab-delimited file
+ * to comma-delimited under its original name.
+ */
 export async function saveTableToBytes(tableName: string): Promise<Uint8Array> {
-  if (!conn || !db) throw new Error('DuckDB not connected');
-  await conn.query(`COPY "${tableName}" TO 'save_export.csv' (FORMAT CSV, HEADER)`);
-  return await db.copyFileToBuffer('save_export.csv');
+  return copyToBytes(ident(tableName), writeOptionsForTable(tableName), 'save_export.csv');
 }
 
 export interface ColumnProfile {
@@ -199,33 +395,73 @@ export interface ColumnQuickStats {
   distinctCount: number;
   nullCount: number;
   totalRows: number;
+  /** Rows holding '' rather than NULL. See the note on emptyCount below. */
+  emptyCount: number;
+  /** Rows that are non-empty but contain only whitespace, e.g. a single space. */
+  whitespaceCount: number;
+  /** Longest and shortest rendered value. The usual question for fixed-format
+   *  files, where an overlong field means an upstream overflow. */
+  maxLength: number | null;
+  minLength: number | null;
+  /** Non-null values that would survive TRY_CAST to BIGINT. Surfaces numeric
+   *  data sitting in a text field, e.g. an NPI in a name column. */
+  numericCastableCount: number | null;
 }
 
 export async function getColumnQuickStats(
   tableName: string,
-  columns: { name: string }[]
+  columns: { name: string; type: string }[]
 ): Promise<Map<string, ColumnQuickStats>> {
   if (!conn) throw new Error('DuckDB not connected');
-  const tbl = `"${tableName.replace(/"/g, '""')}"`;
-  // Build a single query that gets distinct + null counts for all columns
-  const selects = columns.map(c => {
-    const col = `"${c.name.replace(/"/g, '""')}"`;
-    const safe = c.name.replace(/[^a-zA-Z0-9_]/g, '_');
-    return `COUNT(DISTINCT ${col}) as dist_${safe}, COUNT(*) - COUNT(${col}) as null_${safe}`;
+  if (columns.length === 0) return new Map();
+  const tbl = ident(tableName);
+
+  // Aliases are positional rather than derived from the column name: slugging
+  // the name collides for columns that differ only in punctuation ("a b" and
+  // "a-b" both slug to "a_b"), which silently mixes up their stats.
+  const selects = columns.flatMap((c, i) => {
+    const col = ident(c.name);
+    const text = `${col}::VARCHAR`;
+    const parts = [
+      `COUNT(DISTINCT ${col}) as c${i}_dist`,
+      `COUNT(*) - COUNT(${col}) as c${i}_null`,
+      `COUNT(*) FILTER (WHERE ${text} = '') as c${i}_empty`,
+      `COUNT(*) FILTER (WHERE ${text} <> '' AND TRIM(${text}) = '') as c${i}_ws`,
+      `MAX(LENGTH(${text})) as c${i}_maxlen`,
+      `MIN(LENGTH(${text})) as c${i}_minlen`,
+    ];
+    // Only meaningful for text columns; a numeric column is castable by definition.
+    parts.push(
+      isNumericColumnType(c.type)
+        ? `NULL as c${i}_num`
+        : `COUNT(TRY_CAST(${text} AS BIGINT)) as c${i}_num`
+    );
+    return parts;
   });
+
   const result = await conn.query(
     `SELECT COUNT(*) as total, ${selects.join(', ')} FROM ${tbl}`
   );
   const total = Number(result.getChild('total')?.get(0) ?? 0);
+
+  const num = (alias: string): number | null => {
+    const v = result.getChild(alias)?.get(0);
+    return v === null || v === undefined ? null : Number(v);
+  };
+
   const stats = new Map<string, ColumnQuickStats>();
-  for (const c of columns) {
-    const safe = c.name.replace(/[^a-zA-Z0-9_]/g, '_');
+  columns.forEach((c, i) => {
     stats.set(c.name, {
-      distinctCount: Number(result.getChild(`dist_${safe}`)?.get(0) ?? 0),
-      nullCount: Number(result.getChild(`null_${safe}`)?.get(0) ?? 0),
+      distinctCount: num(`c${i}_dist`) ?? 0,
+      nullCount: num(`c${i}_null`) ?? 0,
       totalRows: total,
+      emptyCount: num(`c${i}_empty`) ?? 0,
+      whitespaceCount: num(`c${i}_ws`) ?? 0,
+      maxLength: num(`c${i}_maxlen`),
+      minLength: num(`c${i}_minlen`),
+      numericCastableCount: num(`c${i}_num`),
     });
-  }
+  });
   return stats;
 }
 
@@ -344,7 +580,6 @@ export async function reorderColumns(tableName: string, columnOrder: string[]): 
   await conn.query(`CREATE TABLE "__reorder_tmp" AS SELECT ${selectCols} FROM "${tbl}"`);
   await conn.query(`DROP TABLE "${tbl}"`);
   await conn.query(`ALTER TABLE "__reorder_tmp" RENAME TO "${tbl}"`);
-  loadedTables.set(tableName, loadedTables.get(tableName) ?? tableName);
 }
 
 export async function findReplaceInColumn(
@@ -424,32 +659,21 @@ export async function saveTableWithOptions(
     includeRowNumbers: boolean;
   }
 ): Promise<Uint8Array> {
-  if (!conn || !db) throw new Error('DuckDB not connected');
+  const tbl = ident(tableName);
+  const sourceExpr = options.includeRowNumbers
+    ? `(SELECT ROW_NUMBER() OVER () as row_num, * FROM ${tbl})`
+    : tbl;
 
-  const tbl = `"${tableName.replace(/"/g, '""')}"`;
-  const copyOptions: string[] = ['FORMAT CSV'];
-
-  copyOptions.push(`DELIMITER '${options.delimiter.replace(/'/g, "''")}'`);
-
-  if (options.includeHeader) {
-    copyOptions.push('HEADER');
-  }
-
-  if (options.quoteStyle === 'always') {
-    copyOptions.push('FORCE_QUOTE *');
-  }
-  // 'as-needed' is DuckDB default, 'never' we handle by setting quote to empty-ish
-
-  let sourceExpr: string;
-  if (options.includeRowNumbers) {
-    sourceExpr = `(SELECT ROW_NUMBER() OVER () as row_num, * FROM ${tbl})`;
-  } else {
-    sourceExpr = tbl;
-  }
-
-  const fileName = 'save_as_export.csv';
-  await conn.query(`COPY ${sourceExpr} TO '${fileName}' (${copyOptions.join(', ')})`);
-  return await db.copyFileToBuffer(fileName);
+  return copyToBytes(
+    sourceExpr,
+    {
+      delimiter: options.delimiter,
+      quoteStyle: options.quoteStyle,
+      includeHeader: options.includeHeader,
+      dateFormat: getTableDialect(tableName)?.dateFormat,
+    },
+    'save_as_export.csv'
+  );
 }
 
 export function getConnection(): duckdb.AsyncDuckDBConnection | null {

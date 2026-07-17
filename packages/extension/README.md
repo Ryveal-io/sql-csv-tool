@@ -58,17 +58,35 @@ Virtual scrolling keeps things smooth even with hundreds of thousands of rows. L
 
 ![Scrolling through a large filtered dataset](https://raw.githubusercontent.com/Ryveal-io/sql-csv-chomper/refs/heads/main/packages/extension/images/img_07_fast_paginate.png)
 
+### Resizable columns
+
+Drag any column edge to widen it — handy when one field holds a long description and the rest are short codes. Double-click a resize handle to snap that column back to a best fit.
+
 ### Column operations
 
-Right-click any column header to rename, insert, or delete columns. Load multiple files and JOIN across them — the schema explorer shows every table with columns, types, unique counts, and null percentages.
+Right-click any column header to rename, insert, or delete columns. Load multiple files and JOIN across them — the schema explorer shows every table with columns, types, unique counts, null percentages, and the longest value in each column. Hover a column for the full breakdown: distinct, null, whitespace-only and numeric-looking value counts.
 
 ### Find & Replace
 
 Search and replace across any column with case-sensitive and regex support. Live match count shows how many values will change before you commit.
 
+### Your file's format survives the round trip
+
+Chomper detects the delimiter, quoting, escape character and header row when it opens a file, and reuses them when you save. A pipe-delimited or tab-delimited file goes back to disk the way it arrived — it is never quietly rewritten as comma-delimited. Fields that contain the delimiter are re-quoted on the way out, so they still read back correctly.
+
+### Load Options — when detection gets it wrong
+
+Some files defeat auto-detection. Click **Load Options...** to re-read the file with exactly what you specify:
+- **Column delimiter**: comma, tab, pipe, semicolon, or custom
+- **Row delimiter**: LF, CRLF, or CR
+- **Header**: tell it whether the first row is a header
+- **Quoting**: set or clear the quote and escape characters
+- **Encoding**: UTF-8, Latin-1, or UTF-16
+- **Also**: skip leading rows, read every column as text, or skip malformed rows
+
 ### Save As with options
 
-Export your data exactly how you need it:
+Export your data exactly how you need it — defaults follow the source file's own format:
 - **Delimiter**: comma, tab, pipe, semicolon, or custom
 - **Quoting**: always, as needed, or never
 - **Options**: include/exclude header, add row numbers
@@ -114,17 +132,27 @@ claude mcp remove sql-csv-chomper
 
 | Tool | What it does |
 |------|-------------|
-| `load_csv` | Load a CSV/TSV file as a named table |
+| `load_csv` | Load a delimited file as a named table — dialect detected, every option overridable |
+| `unload_csv` | Drop a table and forget it |
 | `execute_sql` | Run any SQL query |
 | `list_tables` | List all loaded tables |
 | `list_columns` | Get column names and types |
 | `get_schema` | Full schema for all tables |
+| `profile_table` | Nulls, whitespace-only, min/max length, numeric-castable and distinct counts per column |
+| `profile_file` | Scan a file before loading — dialect, row/field counts, suspiciously long columns |
+| `diff_tables` | Compare two tables on a key column: which columns are blank on one side but populated on the other |
 | `update_rows` | Update rows matching a condition |
 | `insert_row` | Insert a new row |
 | `delete_rows` | Delete matching rows |
-| `save_table` | Export a table to CSV |
+| `save_table` | Write a table back out, in its original format by default |
+| `list_remembered_tables` | Tables remembered from earlier sessions |
+| `reload_remembered_tables` | Re-load them with their stored format |
 | `set_editor_sql` | Push SQL into the editor |
 | `run_editor_query` | Set and run SQL in the editor |
+
+> **Empty fields read as `NULL`.** DuckDB treats an empty CSV field — and a quoted empty field — as
+> `NULL` rather than an empty string, so query them with `IS NULL` (`= ''` won't match). `profile_table`
+> separates true nulls from whitespace-only values, which DuckDB *does* keep distinct.
 
 ## Keyboard shortcuts
 
@@ -144,8 +172,13 @@ claude mcp remove sql-csv-chomper
 | `.csv` | Comma-separated values |
 | `.tsv` | Tab-separated values |
 | `.tab` | Tab-delimited |
+| `.psv` | Pipe-separated values |
 | `.txt` | Text (auto-detected delimiter) |
 | `.jsonl` | JSON Lines |
+
+The delimiter is detected from the file's contents, not its extension, so an oddly-named file still
+opens correctly — and **Load Options...** is there for the ones that defeat detection. Other delimited
+files (`.dat` and friends) can be pulled in with **+ Open File** from the schema explorer.
 
 ## How it works
 

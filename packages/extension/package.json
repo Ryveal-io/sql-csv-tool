@@ -2,7 +2,7 @@
   "name": "sql-csv-chomper",
   "displayName": "SQL CSV Chomper",
   "description": "Chomp through CSV files with SQL! Powered by DuckDB with column filtering, inline editing, virtual scrolling, Save As, and an MCP server for Claude/Copilot.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "publisher": "MarkSawczuk",
   "repository": {
     "type": "git",
@@ -42,6 +42,7 @@
           { "filenamePattern": "*.csv" },
           { "filenamePattern": "*.tsv" },
           { "filenamePattern": "*.tab" },
+          { "filenamePattern": "*.psv" },
           { "filenamePattern": "*.jsonl" },
           { "filenamePattern": "*.txt" }
         ],

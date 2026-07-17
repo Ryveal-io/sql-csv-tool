@@ -4,6 +4,7 @@ import {
   getSortedRowModel,
   flexRender,
   type ColumnDef,
+  type ColumnSizingState,
   type SortingState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -67,6 +68,39 @@ function cellKey(rowIndex: number, columnName: string): string {
 
 const ROW_HEIGHT = 28;
 
+// Column sizing. The row-number column is not a TanStack column, so its width is
+// fixed here and mirrored in globals.css (.row-number-header / .row-number).
+const ROW_NUMBER_WIDTH = 48;
+const COLUMN_MIN_SIZE = 60;
+const COLUMN_MAX_SIZE = 1200;
+
+// Auto-fit heuristic. Cells render in 12px monospace, so character count is a
+// good proxy for width without measuring the DOM.
+const CHAR_WIDTH = 7;
+const CELL_CHROME = 18; // td padding (8+8) + borders
+const HEADER_CHROME = 40; // th padding-right (sort indicator + filter icon) + borders
+const AUTO_FIT_MAX_WIDTH = 300; // previous --cell-max-width, now the auto-fit cap
+const AUTO_FIT_SAMPLE_ROWS = 50;
+
+/**
+ * Initial (and reset-to) width for a column, derived from its header plus a
+ * sample of the loaded rows. Sampling a fixed prefix keeps widths stable as
+ * more rows stream in via onFetchMore.
+ */
+function autoFitWidth(columnName: string, rows: Record<string, unknown>[]): number {
+  let maxChars = columnName.length;
+  const sampleSize = Math.min(rows.length, AUTO_FIT_SAMPLE_ROWS);
+  for (let i = 0; i < sampleSize; i++) {
+    const val = rows[i]?.[columnName];
+    const len = val === null || val === undefined ? 4 : String(val).length; // "NULL"
+    if (len > maxChars) maxChars = len;
+  }
+  const contentWidth = maxChars * CHAR_WIDTH + CELL_CHROME;
+  const headerWidth = columnName.length * CHAR_WIDTH + HEADER_CHROME;
+  const width = Math.max(contentWidth, headerWidth);
+  return Math.round(Math.min(Math.max(width, COLUMN_MIN_SIZE), AUTO_FIT_MAX_WIDTH));
+}
+
 export function ResultsTable({
   result,
   error,
@@ -88,6 +122,7 @@ export function ResultsTable({
   onFetchMore,
 }: ResultsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const [selectedCells, setSelectedCells] = useState<Map<string, CellId>>(new Map());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
@@ -214,24 +249,58 @@ export function ResultsTable({
     return displayColumns.map((col) => ({
       accessorKey: col.name,
       header: () => <span title={col.type}>{col.name}</span>,
+      size: autoFitWidth(col.name, result.rows),
+      minSize: COLUMN_MIN_SIZE,
+      maxSize: COLUMN_MAX_SIZE,
       cell: (info) => {
         const val = info.getValue();
         if (val === null || val === undefined) return <span className="null-value">NULL</span>;
         return String(val);
       },
     }));
-  }, [displayColumns]);
+  }, [displayColumns, result?.rows]);
 
   const table = useReactTable({
     data: result?.rows ?? [],
     columns,
-    state: { sorting },
+    state: { sorting, columnSizing },
     onSortingChange: setSorting,
+    onColumnSizingChange: setColumnSizing,
+    columnResizeMode: 'onChange',
+    columnResizeDirection: 'ltr',
+    defaultColumn: { minSize: COLUMN_MIN_SIZE, maxSize: COLUMN_MAX_SIZE },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
 
   const { rows } = table.getRowModel();
+
+  // Drop user-set widths only when the column set itself changes (new table or
+  // different projection). Re-running the same query, filtering, sorting or
+  // paging in more rows all keep the same column ids, and so keep their widths.
+  const columnSignature = useMemo(
+    () => displayColumns.map((col) => col.name).join(' '),
+    [displayColumns]
+  );
+  useEffect(() => {
+    setColumnSizing((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+  }, [columnSignature]);
+
+  // Widths are handed to the cells as CSS custom properties on the <table> rather
+  // than as per-cell inline styles. With columnResizeMode 'onChange' every
+  // mousemove re-renders this component, but each <th>/<td> style object stays
+  // byte-identical ("width: var(--col-N-size)"), so React writes nothing to the
+  // DOM for them and only the table's few custom properties actually change.
+  const columnSizingInfo = table.getState().columnSizingInfo;
+  const isResizing = Boolean(columnSizingInfo.isResizingColumn);
+  const columnSizeVars = useMemo(() => {
+    const vars: Record<string, string> = {};
+    table.getFlatHeaders().forEach((header, index) => {
+      vars[`--col-${index}-size`] = `${header.getSize()}px`;
+    });
+    return vars;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns, columnSizing, columnSizingInfo]);
 
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
@@ -280,7 +349,10 @@ export function ResultsTable({
   const totalSize = rowVirtualizer.getTotalSize();
   const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
   const paddingBottom = virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
-  const colSpan = displayColumns.length + 1; // +1 for row number column
+  const colSpan = displayColumns.length + 2; // + row number column + trailing filler
+  // Explicit total keeps the browser honest about the horizontal scroll extent;
+  // the filler column soaks up any slack when the columns are narrower than the pane.
+  const totalWidth = table.getTotalSize() + ROW_NUMBER_WIDTH;
 
   const activeFilterEntries = columnFilters ? Array.from(columnFilters.entries()) : [];
 
@@ -305,13 +377,16 @@ export function ResultsTable({
           ))}
         </div>
       )}
-      <div className="virtual-table-container" ref={tableContainerRef}>
-        <table>
+      <div
+        className={`virtual-table-container${isResizing ? ' is-resizing' : ''}`}
+        ref={tableContainerRef}
+      >
+        <table style={{ ...columnSizeVars, minWidth: totalWidth }}>
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 <th className="row-number-header">#</th>
-                {headerGroup.headers.map((header) => {
+                {headerGroup.headers.map((header, colIndex) => {
                   const colName = header.column.id;
                   const colType = typeMap.get(colName) ?? '';
                   const hasFilter = columnFilters?.has(colName);
@@ -322,6 +397,7 @@ export function ResultsTable({
                         header.column.getIsSorted() ? 'sorted' : '',
                         hasFilter ? 'col-filtered' : '',
                       ].filter(Boolean).join(' ')}
+                      style={{ width: `var(--col-${colIndex}-size)` }}
                       onContextMenu={(e) => handleHeaderContextMenu(e, colName)}
                     >
                       <div className="th-content" onClick={header.column.getToggleSortingHandler()}>
@@ -341,9 +417,25 @@ export function ResultsTable({
                           </svg>
                         </span>
                       )}
+                      {header.column.getCanResize() && (
+                        <div
+                          className={`col-resizer${header.column.getIsResizing() ? ' col-resizer-active' : ''}`}
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={`Resize ${colName}`}
+                          title="Drag to resize, double-click to auto-fit"
+                          onMouseDown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
+                          onTouchStart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => { e.stopPropagation(); header.column.resetSize(); }}
+                        />
+                      )}
                     </th>
                   );
                 })}
+                {/* Absorbs leftover width so narrow results still fill the pane
+                    without the fixed layout stretching every column. */}
+                <th className="col-filler" aria-hidden="true" />
               </tr>
             ))}
           </thead>
@@ -357,14 +449,15 @@ export function ResultsTable({
               return (
                 <tr key={row.id}>
                   <td className="row-number">{virtualRow.index + 1}</td>
-                  {row.getVisibleCells().map((cell) => {
+                  {row.getVisibleCells().map((cell, colIndex) => {
                     const colName = cell.column.id;
                     const isSelected = selectedCells.has(cellKey(originalIndex, colName));
                     const isEditing = editingCell?.rowIndex === originalIndex && editingCell?.columnName === colName;
+                    const cellWidth = `var(--col-${colIndex}-size)`;
 
                     if (isEditing) {
                       return (
-                        <td key={cell.id} className="cell-editing">
+                        <td key={cell.id} className="cell-editing" style={{ width: cellWidth }}>
                           <input
                             autoFocus
                             value={editingCell.value}
@@ -385,6 +478,7 @@ export function ResultsTable({
                       <td
                         key={cell.id}
                         className={isSelected ? 'cell-selected' : ''}
+                        style={{ width: cellWidth }}
                         title={cellStr.length > 30 ? cellStr : undefined}
                         onClick={(e) => handleCellClick(e, originalIndex, colName)}
                         onDoubleClick={() => handleCellDoubleClick(originalIndex, colName, row.original[colName])}
@@ -394,6 +488,7 @@ export function ResultsTable({
                       </td>
                     );
                   })}
+                  <td className="col-filler" />
                 </tr>
               );
             })}

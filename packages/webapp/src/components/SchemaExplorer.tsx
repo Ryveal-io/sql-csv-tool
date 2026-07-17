@@ -1,6 +1,42 @@
 import { useState, useEffect, useRef } from 'react';
-import type { TableInfo } from '../types/query';
+import type { QueryColumn, TableInfo } from '../types/query';
 import { getColumnQuickStats, type ColumnQuickStats } from '../services/duckdb';
+
+/**
+ * The full stat breakdown, shown on hover because the panel is too narrow to
+ * column it all. Lines that carry no signal for a given column are omitted
+ * rather than shown as zero.
+ */
+function describeColumnStats(col: QueryColumn, s: ColumnQuickStats): string {
+  const lines = [`${col.name} (${col.type})`, `${s.totalRows.toLocaleString()} rows`];
+
+  lines.push(`${s.distinctCount.toLocaleString()} distinct`);
+  lines.push(`${s.nullCount.toLocaleString()} null`);
+
+  // DuckDB reads an empty CSV field as NULL, so this is normally 0 and only
+  // becomes interesting for edited or non-CSV data — hence only shown when set.
+  if (s.emptyCount > 0) lines.push(`${s.emptyCount.toLocaleString()} empty string ('')`);
+  if (s.whitespaceCount > 0) lines.push(`${s.whitespaceCount.toLocaleString()} whitespace-only`);
+
+  if (s.maxLength !== null) {
+    lines.push(`length ${s.minLength ?? 0}–${s.maxLength}`);
+  }
+
+  // Numeric-looking data in a text column usually means it landed in the wrong
+  // field upstream, so it's worth calling out — but only when it's not universal.
+  if (s.numericCastableCount !== null) {
+    const nonNull = s.totalRows - s.nullCount;
+    if (s.numericCastableCount > 0 && nonNull > 0) {
+      lines.push(
+        s.numericCastableCount === nonNull
+          ? 'all values are numeric'
+          : `${s.numericCastableCount.toLocaleString()} of ${nonNull.toLocaleString()} values are numeric`
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
 
 interface SchemaExplorerProps {
   tables: TableInfo[];
@@ -119,6 +155,7 @@ export function SchemaExplorer({ tables, activeTable, onSelectTable, onOpenFile,
                       <span className="schema-col-h-type">Type</span>
                       <span className="schema-col-h-unique">Unique</span>
                       <span className="schema-col-h-null">% Null</span>
+                      <span className="schema-col-h-len" title="Longest value in this column">Len</span>
                     </div>
                     <ul className="schema-columns">
                       {table.columns.map(col => {
@@ -127,7 +164,11 @@ export function SchemaExplorer({ tables, activeTable, onSelectTable, onOpenFile,
                           ? (stats.nullCount / stats.totalRows) * 100
                           : 0;
                         return (
-                          <li key={col.name} className="schema-column">
+                          <li
+                            key={col.name}
+                            className="schema-column"
+                            title={stats ? describeColumnStats(col, stats) : col.name}
+                          >
                             <span className="schema-col-name">{col.name}</span>
                             <span className="schema-col-type">{col.type}</span>
                             <span className="schema-col-unique">
@@ -135,6 +176,9 @@ export function SchemaExplorer({ tables, activeTable, onSelectTable, onOpenFile,
                             </span>
                             <span className="schema-col-null">
                               {stats ? (nullPct > 0 ? nullPct.toFixed(1) : '0') : ''}
+                            </span>
+                            <span className="schema-col-len">
+                              {stats?.maxLength ?? ''}
                             </span>
                           </li>
                         );

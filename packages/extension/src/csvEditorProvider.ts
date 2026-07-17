@@ -131,7 +131,7 @@ export class CsvEditorProvider implements vscode.CustomEditorProvider<CsvDocumen
           const uris = await vscode.window.showOpenDialog({
             canSelectMany: true,
             filters: {
-              'Delimited Files': ['csv', 'tsv', 'tab', 'jsonl', 'txt'],
+              'Delimited Files': ['csv', 'tsv', 'tab', 'psv', 'dat', 'jsonl', 'txt'],
               'All Files': ['*'],
             },
           });

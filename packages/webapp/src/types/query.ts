@@ -1,3 +1,5 @@
+import type { CsvDialect } from './dialect';
+
 export interface QueryColumn {
   name: string;
   type: string;
@@ -8,6 +10,7 @@ export interface TableInfo {
   fileName: string;      // Original filename
   columns: QueryColumn[];
   rowCount: number;      // Total rows in the table
+  dialect?: CsvDialect;  // Source format, so Save can reproduce it
 }
 
 export interface QueryResult {

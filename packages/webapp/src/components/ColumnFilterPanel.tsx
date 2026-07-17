@@ -470,7 +470,10 @@ export function ColumnFilterPanel({
                           const col = `"${columnName.replace(/"/g, '""')}"`;
                           const { start, end } = periodRange(bucket.period, granularity);
                           const clause = `${col} >= '${start}' AND ${col} < '${end}'`;
-                          onApplyFilter(columnName, clause);
+                          // A period filter has no per-value checkbox state, but
+                          // the range does exclude NULLs — so say so rather than
+                          // storing an undefined selection.
+                          onApplyFilter(columnName, clause, { uncheckedValues: [], includeNull: false });
                           onClose();
                         }}
                         title="Click to filter by this period"

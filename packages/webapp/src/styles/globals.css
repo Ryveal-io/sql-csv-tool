@@ -23,7 +23,6 @@
   --vscode-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --vscode-font-size: 13px;
   --vscode-errorForeground: #f48771;
-  --cell-max-width: 300px;
 }
 
 * {
@@ -173,6 +172,12 @@ body {
 }
 
 table {
+  /* Fixed layout is what makes the resized widths authoritative: the browser
+     takes column widths from the header row alone instead of measuring cell
+     content. It also stops columns from jittering as virtualized rows with
+     different content lengths scroll in and out. The inline min-width from
+     ResultsTable drives the horizontal scroll extent. */
+  table-layout: fixed;
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
@@ -193,10 +198,12 @@ th {
   background: var(--vscode-editorWidget-background, #252526);
   border-bottom: 2px solid var(--vscode-focusBorder);
   border-right: 1px solid var(--vscode-panel-border);
-  padding: 4px 20px 4px 8px;
+  /* Right padding reserves room for the sort indicator, filter icon and resizer. */
+  padding: 4px 28px 4px 8px;
   text-align: left;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
   user-select: none;
 }
 
@@ -212,8 +219,9 @@ td {
   border-bottom: 1px solid var(--vscode-panel-border);
   border-right: 1px solid var(--vscode-panel-border);
   padding: 2px 8px;
+  /* No max-width: the column's own width (set per-cell from the resize state)
+     is the constraint now. Overflowing content still ellipsizes. */
   white-space: nowrap;
-  max-width: var(--cell-max-width);
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: default;
@@ -256,9 +264,21 @@ td.cell-editing input {
   opacity: 0.5;
   text-align: right;
   padding: 2px 6px;
-  min-width: 40px;
+  /* Keep in sync with ROW_NUMBER_WIDTH in ResultsTable.tsx. This column is not a
+     TanStack column and carries no resize handle, so it is fixed by design. */
+  width: 48px;
+  min-width: 48px;
   user-select: none;
   font-size: 11px;
+}
+
+/* Trailing filler column: the only auto-width column, so under table-layout:fixed
+   it takes any slack when the real columns are narrower than the pane, and
+   collapses to nothing once they overflow it. */
+.col-filler {
+  width: auto;
+  border-right: none;
+  padding: 0;
 }
 
 .null-value {
@@ -307,7 +327,8 @@ th:hover .sort-hint {
 
 .col-filter-icon {
   position: absolute;
-  right: 2px;
+  /* Clears the resize handle's hit area at the right edge. */
+  right: 9px;
   top: 50%;
   transform: translateY(-50%);
   opacity: 0;
@@ -341,6 +362,60 @@ th:hover .col-filter-icon {
 th.col-filtered {
   background: rgba(14, 99, 156, 0.12);
   border-bottom-color: var(--vscode-button-background);
+}
+
+/* Column resize handle. The element itself is a wide, invisible grab target;
+   the visible 2px line is drawn by ::after at the column edge. Sits above the
+   filter icon so the edge always wins the pointer. */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 7px;
+  z-index: 3;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none; /* let the handler own touch drags instead of scrolling */
+  background: transparent;
+}
+
+.col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--vscode-focusBorder);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+th:hover .col-resizer::after {
+  opacity: 0.4;
+}
+
+.col-resizer:hover::after,
+.col-resizer-active::after {
+  opacity: 1;
+}
+
+/* While a drag is live, keep the cursor and kill hover/transition work that would
+   otherwise repaint on every mousemove. */
+.virtual-table-container.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.virtual-table-container.is-resizing .col-resizer::after,
+.virtual-table-container.is-resizing .sort-hint,
+.virtual-table-container.is-resizing .col-filter-icon {
+  transition: none;
+}
+
+.virtual-table-container.is-resizing tr:hover td {
+  background: inherit;
 }
 
 /* Active filters bar */
@@ -531,7 +606,7 @@ th.col-filtered {
 
 .schema-col-header {
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: 1fr auto auto auto auto;
   gap: 0 6px;
   padding: 2px 4px 2px 20px;
   font-size: 9px;
@@ -549,6 +624,11 @@ th.col-filtered {
   min-width: 42px;
 }
 
+.schema-col-h-len {
+  text-align: right;
+  min-width: 28px;
+}
+
 .schema-tree .schema-columns {
   padding-left: 0;
 }
@@ -561,7 +641,7 @@ th.col-filtered {
 
 .schema-column {
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: 1fr auto auto auto auto;
   gap: 0 6px;
   align-items: center;
   padding: 1px 4px 1px 20px;
@@ -598,6 +678,13 @@ th.col-filtered {
   opacity: 0.45;
   font-size: 10px;
   min-width: 42px;
+}
+
+.schema-col-len {
+  text-align: right;
+  opacity: 0.45;
+  font-size: 10px;
+  min-width: 28px;
 }
 
 .schema-open-btn-inline {
@@ -1128,4 +1215,24 @@ th.col-filtered {
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid var(--vscode-panel-border);
+}
+
+/* Load Options dialog reuses the Save As chrome above. */
+.load-options-hint {
+  margin: -8px 0 16px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.75;
+}
+
+.load-options-hint code {
+  padding: 1px 4px;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 2px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.save-as-options-inline {
+  flex-direction: row;
+  gap: 16px;
 }

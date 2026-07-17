@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { initDuckDb, loadCsvFromBytes } from '../services/duckdb';
+import type { CsvLoadOptions } from '../types/dialect';
 
 interface DuckDbState {
   isReady: boolean;
@@ -29,12 +30,16 @@ export function useDuckDb() {
       });
   }, []);
 
-  const loadFile = async (fileName: string, content: Uint8Array): Promise<string> => {
+  const loadFile = async (
+    fileName: string,
+    content: Uint8Array,
+    options?: CsvLoadOptions
+  ): Promise<string> => {
     // Wait for DuckDB to finish initializing before loading data
     if (initPromiseRef.current) {
       await initPromiseRef.current;
     }
-    return await loadCsvFromBytes(fileName, content);
+    return await loadCsvFromBytes(fileName, content, options);
   };
 
   return { ...state, loadFile };

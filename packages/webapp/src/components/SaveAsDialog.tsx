@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import type { CsvDialect } from '../types/dialect';
+import { extensionForDelimiter } from '../types/dialect';
 
 export interface SaveAsOptions {
   delimiter: string;
@@ -9,6 +11,8 @@ export interface SaveAsOptions {
 }
 
 interface SaveAsDialogProps {
+  /** Dialect of the source file, used to default the form to its format. */
+  dialect?: CsvDialect;
   onSave: (options: SaveAsOptions) => void;
   onClose: () => void;
 }
@@ -20,20 +24,19 @@ const DELIMITER_PRESETS = [
   { label: 'Semicolon (;)', value: ';' },
 ];
 
-function extensionForDelimiter(delim: string): string {
-  if (delim === '\t') return '.tsv';
-  if (delim === ',') return '.csv';
-  return '.txt';
-}
+export function SaveAsDialog({ dialect, onSave, onClose }: SaveAsDialogProps) {
+  // Default to the source file's own format: someone saving a pipe-delimited
+  // file is far more often keeping it than converting it to CSV.
+  const sourceDelimiter = dialect?.delimiter ?? ',';
+  const isPreset = DELIMITER_PRESETS.some(p => p.value === sourceDelimiter);
 
-export function SaveAsDialog({ onSave, onClose }: SaveAsDialogProps) {
-  const [delimiter, setDelimiter] = useState(',');
-  const [customDelimiter, setCustomDelimiter] = useState('');
-  const [useCustom, setUseCustom] = useState(false);
+  const [delimiter, setDelimiter] = useState(isPreset ? sourceDelimiter : ',');
+  const [customDelimiter, setCustomDelimiter] = useState(isPreset ? '' : sourceDelimiter);
+  const [useCustom, setUseCustom] = useState(!isPreset);
   const [quoteStyle, setQuoteStyle] = useState<SaveAsOptions['quoteStyle']>('as-needed');
-  const [includeHeader, setIncludeHeader] = useState(true);
+  const [includeHeader, setIncludeHeader] = useState(dialect?.hasHeader ?? true);
   const [includeRowNumbers, setIncludeRowNumbers] = useState(false);
-  const [fileExtension, setFileExtension] = useState('.csv');
+  const [fileExtension, setFileExtension] = useState(extensionForDelimiter(sourceDelimiter));
 
   const overlayRef = useRef<HTMLDivElement>(null);
 
