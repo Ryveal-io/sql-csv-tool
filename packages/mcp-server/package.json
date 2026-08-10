@@ -1,6 +1,6 @@
 {
   "name": "sql-csv-chomper-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "MCP server for querying and editing CSV/TSV files with SQL, powered by DuckDB. Works with Claude Code, Copilot, and other MCP clients.",
   "type": "module",
   "license": "MIT",

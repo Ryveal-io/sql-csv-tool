@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { CsvDialect, CsvLoadOptions } from '../types/dialect';
 
 interface LoadOptionsDialogProps {
@@ -7,6 +7,10 @@ interface LoadOptionsDialogProps {
   fileName: string;
   onReload: (options: CsvLoadOptions) => void;
   onClose: () => void;
+  /** Why the last reload attempt failed, if it did. */
+  error?: string | null;
+  /** True while a reload is in flight. */
+  isReloading?: boolean;
 }
 
 const DELIMITER_PRESETS = [
@@ -37,19 +41,38 @@ function describeDelimiter(value: string): string {
   return value;
 }
 
-export function LoadOptionsDialog({ dialect, fileName, onReload, onClose }: LoadOptionsDialogProps) {
+export function LoadOptionsDialog({
+  dialect,
+  fileName,
+  onReload,
+  onClose,
+  error,
+  isReloading = false,
+}: LoadOptionsDialogProps) {
   const detected = dialect?.delimiter ?? ',';
   const isPreset = DELIMITER_PRESETS.some(p => p.value === detected);
+
+  // What the form was seeded with. Fields still holding these values are ones
+  // the user never had an opinion about, so they are left out of the overrides
+  // and re-detected instead. Detection produced them as a set: once the user
+  // corrects one, the rest of the set stops being evidence of anything.
+  const prefill = useMemo(() => ({
+    hasHeader: dialect?.hasHeader ?? true,
+    quote: dialect?.quote ?? '"',
+    escape: dialect?.escape ?? '"',
+    skipRows: String(dialect?.skipRows ?? 0),
+    encoding: dialect?.encoding ?? 'utf-8',
+  }), [dialect]);
 
   const [delimiter, setDelimiter] = useState(isPreset ? detected : ',');
   const [customDelimiter, setCustomDelimiter] = useState(isPreset ? '' : detected);
   const [useCustom, setUseCustom] = useState(!isPreset);
-  const [hasHeader, setHasHeader] = useState(dialect?.hasHeader ?? true);
-  const [quote, setQuote] = useState(dialect?.quote ?? '"');
-  const [escape, setEscape] = useState(dialect?.escape ?? '"');
+  const [hasHeader, setHasHeader] = useState(prefill.hasHeader);
+  const [quote, setQuote] = useState(prefill.quote);
+  const [escape, setEscape] = useState(prefill.escape);
   const [newline, setNewline] = useState('');
-  const [skipRows, setSkipRows] = useState(String(dialect?.skipRows ?? 0));
-  const [encoding, setEncoding] = useState(dialect?.encoding ?? 'utf-8');
+  const [skipRows, setSkipRows] = useState(prefill.skipRows);
+  const [encoding, setEncoding] = useState(prefill.encoding);
   const [allVarchar, setAllVarchar] = useState(false);
   const [ignoreErrors, setIgnoreErrors] = useState(false);
 
@@ -69,20 +92,22 @@ export function LoadOptionsDialog({ dialect, fileName, onReload, onClose }: Load
   }, [onClose]);
 
   const handleReload = useCallback(() => {
-    if (!effectiveDelimiter) return;
+    if (!effectiveDelimiter || isReloading) return;
     const parsedSkip = parseInt(skipRows, 10);
     onReload({
       delimiter: effectiveDelimiter,
-      hasHeader,
-      quote,
-      escape,
+      ...(hasHeader !== prefill.hasHeader && { hasHeader }),
+      ...(quote !== prefill.quote && { quote }),
+      ...(escape !== prefill.escape && { escape }),
       ...(newline && { newline }),
-      skipRows: Number.isFinite(parsedSkip) && parsedSkip >= 0 ? parsedSkip : 0,
-      encoding,
-      allVarchar,
-      ignoreErrors,
+      ...(skipRows !== prefill.skipRows && {
+        skipRows: Number.isFinite(parsedSkip) && parsedSkip >= 0 ? parsedSkip : 0,
+      }),
+      ...(encoding !== prefill.encoding && { encoding }),
+      ...(allVarchar && { allVarchar }),
+      ...(ignoreErrors && { ignoreErrors }),
     });
-  }, [effectiveDelimiter, hasHeader, quote, escape, newline, skipRows, encoding, allVarchar, ignoreErrors, onReload]);
+  }, [prefill, effectiveDelimiter, hasHeader, quote, escape, newline, skipRows, encoding, allVarchar, ignoreErrors, isReloading, onReload]);
 
   return (
     <div className="save-as-overlay" ref={overlayRef} onClick={handleOverlayClick}>
@@ -217,14 +242,21 @@ export function LoadOptionsDialog({ dialect, fileName, onReload, onClose }: Load
           </div>
         </div>
 
+        {error && (
+          <div className="load-options-error" role="alert">
+            Reload failed — the file was left as it was.
+            <pre>{error}</pre>
+          </div>
+        )}
+
         <div className="save-as-actions">
-          <button className="toolbar-btn" onClick={onClose}>Cancel</button>
+          <button className="toolbar-btn" onClick={onClose} disabled={isReloading}>Cancel</button>
           <button
             className="toolbar-btn toolbar-btn-primary"
             onClick={handleReload}
-            disabled={!effectiveDelimiter}
+            disabled={!effectiveDelimiter || isReloading}
           >
-            Reload
+            {isReloading ? 'Reloading…' : 'Reload'}
           </button>
         </div>
       </div>

@@ -1232,6 +1232,27 @@ th:hover .col-resizer::after {
   font-family: var(--vscode-editor-font-family, monospace);
 }
 
+.load-options-error {
+  margin: 12px 0 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+  background: var(--vscode-inputValidation-errorBackground, rgba(190, 17, 0, 0.15));
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.load-options-error pre {
+  margin: 6px 0 0 0;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.9;
+}
+
 .save-as-options-inline {
   flex-direction: row;
   gap: 16px;

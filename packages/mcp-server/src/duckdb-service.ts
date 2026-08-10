@@ -206,10 +206,37 @@ export async function reloadRememberedTables(): Promise<ReloadResult[]> {
 
 // --- Dialect detection ---
 
-export async function sniffCsv(filePath: string): Promise<CsvDialect> {
+/**
+ * Render the caller's overrides as `sniff_csv()` arguments, so the fields they
+ * did *not* specify are detected under the constraints they did.
+ *
+ * Detection produces a dialect as a set. When the caller corrects one field,
+ * the rest of that set stops being evidence: a file mis-sniffed as
+ * single-column pipe-delimited reports no quote character, and reusing that
+ * alongside a corrected comma delimiter makes the load fail outright.
+ */
+function sniffOverrides(opts: LoadCsvOptions): string[] {
+  const args: string[] = [];
+  if (opts.delimiter !== undefined) args.push(`delim='${lit(opts.delimiter)}'`);
+  if (opts.quote !== undefined) args.push(`quote='${lit(opts.quote)}'`);
+  if (opts.escape !== undefined) args.push(`escape='${lit(opts.escape)}'`);
+  if (opts.header !== undefined) args.push(`header=${opts.header ? 'true' : 'false'}`);
+  if (opts.skipRows !== undefined) args.push(`skip=${Math.trunc(opts.skipRows)}`);
+  if (opts.encoding !== undefined) args.push(`encoding='${lit(opts.encoding)}'`);
+  if (opts.newline !== undefined && NEWLINE_TOKENS.has(opts.newline)) {
+    args.push(`new_line='${lit(opts.newline)}'`);
+  }
+  // Detection is as strict as the read, so a caller who has already accepted
+  // malformed rows needs that tolerance here too or the sniff fails first.
+  if (opts.ignoreErrors) args.push('ignore_errors=true');
+  return args;
+}
+
+export async function sniffCsv(filePath: string, opts: LoadCsvOptions = {}): Promise<CsvDialect> {
   const d = getDb();
   const absPath = path.resolve(filePath);
-  const rows = await d.all(`SELECT * FROM sniff_csv('${lit(absPath)}')`);
+  const args = [`'${lit(absPath)}'`, ...sniffOverrides(opts)].join(', ');
+  const rows = await d.all(`SELECT * FROM sniff_csv(${args})`);
   const r = rows[0] as any;
   if (!r) throw new Error(`Could not sniff CSV dialect for "${filePath}"`);
 
@@ -240,8 +267,8 @@ export async function loadCsv(filePath: string, opts: LoadCsvOptions = {}): Prom
   const name = opts.tableName || tableNameFromPath(filePath);
   const absPath = path.resolve(filePath);
 
-  // Sniff first, then let explicit options win.
-  const sniffed = await sniffCsv(absPath);
+  // Sniff under the caller's overrides, then let those overrides win.
+  const sniffed = await sniffCsv(absPath, opts);
   const dialect: CsvDialect = {
     delimiter: opts.delimiter ?? sniffed.delimiter,
     quote: opts.quote ?? sniffed.quote,

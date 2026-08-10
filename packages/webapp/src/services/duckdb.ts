@@ -89,16 +89,55 @@ export async function initDuckDb(): Promise<void> {
 }
 
 /**
+ * The only row delimiters DuckDB's `new_line` option accepts, spelled the way
+ * it wants them: the literal backslash tokens, not the control characters.
+ * `sniff_csv` reports NewLineDelimiter in this same form.
+ */
+const NEWLINE_TOKENS = ['\\r', '\\n', '\\r\\n'];
+
+/**
+ * Render the user's overrides as `sniff_csv()` arguments, so detection of the
+ * fields they did *not* specify happens under the constraints they did.
+ */
+function sniffOverrides(options: CsvLoadOptions): string[] {
+  const opts: string[] = [];
+  if (options.delimiter !== undefined) opts.push(`delim=${lit(options.delimiter)}`);
+  if (options.quote !== undefined) opts.push(`quote=${lit(options.quote)}`);
+  if (options.escape !== undefined) opts.push(`escape=${lit(options.escape)}`);
+  if (options.hasHeader !== undefined) opts.push(`header=${options.hasHeader}`);
+  if (options.skipRows !== undefined) opts.push(`skip=${options.skipRows}`);
+  if (options.encoding !== undefined) opts.push(`encoding=${lit(options.encoding)}`);
+  if (options.newline !== undefined && NEWLINE_TOKENS.includes(options.newline)) {
+    opts.push(`new_line=${lit(options.newline)}`);
+  }
+  // Detection is as strict as the read, so a user who has already accepted
+  // malformed rows needs that tolerance here too or the sniff fails first.
+  if (options.ignoreErrors) opts.push('ignore_errors=true');
+  return opts;
+}
+
+/**
  * Ask DuckDB to detect a registered file's dialect.
+ *
+ * Any `options` the caller has already decided on are pinned for the sniff.
+ * That matters on reload: the fields the user left alone must be re-detected
+ * against the dialect they just corrected, not carried over from the one they
+ * rejected. A file mis-sniffed as single-column pipe-delimited reports no quote
+ * character, and reusing that alongside a corrected comma delimiter makes the
+ * load fail outright.
  *
  * Returns null if sniffing is unavailable or fails, in which case callers fall
  * back to `read_csv_auto` and the default dialect — a worse round-trip, but
  * still a successful open.
  */
-export async function sniffCsv(fileName: string): Promise<CsvDialect | null> {
+export async function sniffCsv(
+  fileName: string,
+  options: CsvLoadOptions = {}
+): Promise<CsvDialect | null> {
   if (!conn) throw new Error('DuckDB not connected');
   try {
-    const result = await conn.query(`SELECT * FROM sniff_csv(${lit(fileName)})`);
+    const args = [lit(fileName), ...sniffOverrides(options)].join(', ');
+    const result = await conn.query(`SELECT * FROM sniff_csv(${args})`);
     if (result.numRows === 0) return null;
 
     const read = (col: string) => result.getChild(col)?.get(0);
@@ -121,13 +160,6 @@ export async function sniffCsv(fileName: string): Promise<CsvDialect | null> {
     return null;
   }
 }
-
-/**
- * The only row delimiters DuckDB's `new_line` option accepts, spelled the way
- * it wants them: the literal backslash tokens, not the control characters.
- * `sniff_csv` reports NewLineDelimiter in this same form.
- */
-const NEWLINE_TOKENS = ['\\r', '\\n', '\\r\\n'];
 
 /** Build the option list for a `read_csv()` call from a resolved dialect. */
 function readOptions(dialect: CsvDialect, options: CsvLoadOptions): string[] {
@@ -174,7 +206,7 @@ export async function loadCsvFromBytes(
   await db.dropFile(fileName).catch(() => undefined);
   await db.registerFileBuffer(fileName, content);
 
-  const sniffed = await sniffCsv(fileName);
+  const sniffed = await sniffCsv(fileName, options);
   const dialect: CsvDialect = {
     ...DEFAULT_DIALECT,
     ...(sniffed ?? {}),

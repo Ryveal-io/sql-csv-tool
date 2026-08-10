@@ -94,6 +94,8 @@ export default function App() {
   const [showFindReplace, setShowFindReplace] = useState(false);
   const [showSaveAs, setShowSaveAs] = useState(false);
   const [showLoadOptions, setShowLoadOptions] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
+  const [isReloading, setIsReloading] = useState(false);
 
   const { isReady, isLoading: dbLoading, error: dbError, loadFile } = useDuckDb();
   const { result, totalQueryRows, hasMore, error: queryError, isExecuting, isFetchingMore, runQuery, fetchMore, updateRow } = useQueryExecution();
@@ -135,15 +137,25 @@ export default function App() {
     if (!activeTable) return;
     const fileName = tables.find(t => t.name === activeTable)?.fileName;
     if (!fileName) return;
-    setShowLoadOptions(false);
-    const tableName = await reloadTableWithOptions(activeTable, options);
-    clearProfileCache(tableName);
-    setDirtyTables(prev => {
-      const next = new Set(prev);
-      next.delete(tableName);
-      return next;
-    });
-    await adoptTable(tableName, fileName);
+    setReloadError(null);
+    setIsReloading(true);
+    try {
+      const tableName = await reloadTableWithOptions(activeTable, options);
+      clearProfileCache(tableName);
+      setDirtyTables(prev => {
+        const next = new Set(prev);
+        next.delete(tableName);
+        return next;
+      });
+      await adoptTable(tableName, fileName);
+      setShowLoadOptions(false);
+    } catch (err) {
+      // A rejected combination leaves the old table intact, so the dialog stays
+      // open with the reason rather than closing on a load that never happened.
+      setReloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsReloading(false);
+    }
   }, [activeTable, tables, adoptTable]);
 
   const handleSelectTable = useCallback((tableName: string) => {
@@ -425,7 +437,7 @@ export default function App() {
           isDirty={isDirty}
           onSave={handleSave}
           onSaveAs={() => setShowSaveAs(true)}
-          onLoadOptions={() => setShowLoadOptions(true)}
+          onLoadOptions={() => { setReloadError(null); setShowLoadOptions(true); }}
           onFormat={handleFormat}
           onToggleFindReplace={() => setShowFindReplace(prev => !prev)}
           showFindReplace={showFindReplace}
@@ -493,6 +505,8 @@ export default function App() {
         fileName={activeTableInfo.fileName}
         onReload={handleReloadWithOptions}
         onClose={() => setShowLoadOptions(false)}
+        error={reloadError}
+        isReloading={isReloading}
       />
     )}
   </>
